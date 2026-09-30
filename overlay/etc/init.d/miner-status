@@ -1,0 +1,12 @@
+#!/sbin/openrc-run
+description="LAN status page (busybox httpd) proxying XMRig summary"
+
+command="/usr/local/bin/status-httpd.sh"
+supervisor="supervise-daemon"
+respawn_delay=5
+respawn_max=0
+
+depend() {
+    need net
+    after miner
+}

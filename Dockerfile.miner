@@ -1,0 +1,12 @@
+# Dockerfile.miner - build a reusable miner image (quick test, not the live OS).
+#   docker build -f Dockerfile.miner -t xmr-miner .
+#   docker run --rm -it -p 8080:8080 -e MINER_FOREGROUND=1 \
+#       -v "$PWD/config-template/miner.conf":/miner.conf:ro xmr-miner
+# Add --privileged for hugepages + MSR mod (full RandomX speed).
+FROM alpine:3.21
+RUN apk add --no-cache xmrig curl
+COPY overlay/usr/local/bin/miner-start.sh /usr/local/bin/miner-start.sh
+RUN chmod +x /usr/local/bin/miner-start.sh
+ENV MINER_FOREGROUND=1
+EXPOSE 8080
+ENTRYPOINT ["sh", "/usr/local/bin/miner-start.sh"]

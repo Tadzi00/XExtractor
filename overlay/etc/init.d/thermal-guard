@@ -1,0 +1,13 @@
+#!/sbin/openrc-run
+description="Thermal watchdog — pauses/resumes the miner by CPU temperature"
+
+command="/usr/local/bin/thermal-guard.sh"
+supervisor="supervise-daemon"
+respawn_delay=5
+respawn_max=0
+output_log="/var/log/thermal-guard.log"
+error_log="/var/log/thermal-guard.log"
+
+depend() {
+    after miner
+}

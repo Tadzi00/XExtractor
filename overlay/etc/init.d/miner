@@ -1,0 +1,14 @@
+#!/sbin/openrc-run
+description="Monero (RandomX) CPU miner — reads miner.conf, tunes CPU, runs XMRig"
+
+command="/usr/local/bin/miner-start.sh"
+supervisor="supervise-daemon"
+respawn_delay=10
+respawn_max=0                 # 0 = restart forever (survives crashes / pool drops)
+output_log="/var/log/miner.log"
+error_log="/var/log/miner.log"
+
+depend() {
+    need net
+    after firewall
+}

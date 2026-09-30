@@ -1,0 +1,13 @@
+#!/bin/sh
+# Fallback: DHCP any wired interface that isn't loopback and has no address yet.
+# Covers NICs that aren't named eth0 (enp*, eno*, ...). Harmless if eth0 already up.
+for i in $(ls /sys/class/net 2>/dev/null); do
+    [ "$i" = "lo" ] && continue
+    # skip wireless (headless rigs are wired); skip if already has an IPv4
+    [ -d "/sys/class/net/$i/wireless" ] && continue
+    ip link set "$i" up 2>/dev/null
+    if ! ip -4 addr show "$i" 2>/dev/null | grep -q 'inet '; then
+        udhcpc -i "$i" -b -t 5 -T 3 2>/dev/null &
+    fi
+done
+exit 0
