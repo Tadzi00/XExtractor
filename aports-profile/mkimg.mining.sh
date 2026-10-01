@@ -28,6 +28,9 @@ msr.allow_writes=on"
 		e2fsprogs
 		dosfstools
 		exfatprogs
+		wpa_supplicant
+		wireless-regdb
+		linux-firmware
 		"
 
 	# Overlay generator (services + scripts).

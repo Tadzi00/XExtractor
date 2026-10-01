@@ -3,6 +3,11 @@
 # All generated state lives in tmpfs (RAM) so the USB stick can be removed afterwards.
 set -u
 
+# Explicit PATH: OpenRC's supervise-daemon can start us with a minimal PATH,
+# which made `command -v xmrig/blkid/lsblk` fail even though they exist in
+# /usr/bin etc. (the "can't find .../xmrig" symptom).
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
 LOG="/var/log/miner.log"
 RUNDIR="/run/miner"
 XMRIG_CONF="$RUNDIR/xmrig.json"
@@ -20,6 +25,9 @@ MAX_TEMP_C="85"
 MONITOR_PORT="8080"
 MONITOR_TOKEN="change-me"
 CPU_MAX_THREADS_HINT=""           # empty = XMRig auto (all cores)
+WIFI_SSID=""                      # set in miner.conf to use WiFi instead of ethernet
+WIFI_PASS=""
+WIFI_COUNTRY="US"
 
 # ----- Broad config search ----------------------------------------------------
 # Looks, in order, for a usable miner.conf on:
@@ -99,7 +107,7 @@ load_config() {
     key="$(printf '%s' "$key" | tr -d ' \t\r')"
     val="$(printf '%s' "$val" | sed 's/[[:space:]]*#.*$//; s/^[[:space:]]*//; s/[[:space:]]*$//; s/\r$//')"
     case "$key" in
-      POOL_URL|WALLET|WORKER_NAME|POOL_TLS|MAX_TEMP_C|MONITOR_PORT|MONITOR_TOKEN|CPU_MAX_THREADS_HINT)
+      POOL_URL|WALLET|WORKER_NAME|POOL_TLS|MAX_TEMP_C|MONITOR_PORT|MONITOR_TOKEN|CPU_MAX_THREADS_HINT|WIFI_SSID|WIFI_PASS|WIFI_COUNTRY)
         [ -n "$val" ] && eval "$key=\$val" ;;
       ''|\#*) : ;;
     esac
@@ -117,6 +125,36 @@ tune_cpu() {
       && log "reserved 1280x2M hugepages at runtime" \
       || log "could not reserve hugepages at runtime"
   fi
+}
+
+# ----- WiFi (optional) --------------------------------------------------------
+# If WIFI_SSID is set in miner.conf, join that network. Wired machines leave
+# WIFI_SSID blank and this is skipped. XMRig uses `after net`, so it just retries
+# until this brings the link up.
+bring_up_wifi() {
+  [ -n "$WIFI_SSID" ] || return 0
+  # Find the first wireless interface.
+  wdev=""
+  for d in /sys/class/net/*/wireless; do
+    [ -e "$d" ] || continue
+    wdev="$(basename "$(dirname "$d")")"; break
+  done
+  if [ -z "$wdev" ]; then
+    log "WIFI_SSID set but no wireless interface found (missing driver/firmware?)"
+    return 1
+  fi
+  log "bringing up WiFi on $wdev (SSID=$WIFI_SSID)"
+  mkdir -p /run/wpa_supplicant
+  wpa_passphrase "$WIFI_SSID" "$WIFI_PASS" > /run/wpa_supplicant.conf 2>/dev/null || {
+    # Open network (no password).
+    printf 'network={\n  ssid="%s"\n  key_mgmt=NONE\n}\n' "$WIFI_SSID" > /run/wpa_supplicant.conf
+  }
+  printf 'country=%s\n' "$WIFI_COUNTRY" | cat - /run/wpa_supplicant.conf > /run/wpa_supplicant.conf.tmp \
+    && mv /run/wpa_supplicant.conf.tmp /run/wpa_supplicant.conf
+  ip link set "$wdev" up 2>/dev/null
+  wpa_supplicant -B -i "$wdev" -c /run/wpa_supplicant.conf >>"$LOG" 2>&1
+  udhcpc -i "$wdev" -b -t 10 -T 3 >>"$LOG" 2>&1 &
+  log "WiFi association started on $wdev"
 }
 
 # ----- Generate XMRig config ---------------------------------------------------
@@ -189,12 +227,26 @@ if [ "$WALLET" = "YOUR_MONERO_ADDRESS_HERE" ]; then
   log "WARNING: wallet is still the placeholder; set it in miner.conf."
 fi
 
+bring_up_wifi
 tune_cpu
 write_env
 write_xmrig_conf
 log "launching xmrig (pool=${POOL_URL} worker=${WORKER_NAME} tls=${POOL_TLS})"
 
-XMRIG_BIN="$(command -v xmrig || echo /usr/local/bin/xmrig)"
+# Locate the xmrig binary robustly (PATH is exported above; also check absolute
+# paths and, as a last resort, install it from the bundled/online repo).
+XMRIG_BIN="$(command -v xmrig 2>/dev/null || true)"
+if [ -z "$XMRIG_BIN" ]; then
+  for p in /usr/bin/xmrig /usr/local/bin/xmrig /bin/xmrig; do
+    [ -x "$p" ] && XMRIG_BIN="$p" && break
+  done
+fi
+if [ -z "$XMRIG_BIN" ]; then
+  log "xmrig not found on disk; attempting 'apk add xmrig'"
+  apk add --no-progress xmrig >>"$LOG" 2>&1 || log "apk add xmrig failed (no repo/network?)"
+  XMRIG_BIN="$(command -v xmrig 2>/dev/null || echo /usr/bin/xmrig)"
+fi
+log "using xmrig binary: $XMRIG_BIN"
 # MINER_FOREGROUND=1 sends XMRig output to stdout (for container/interactive use);
 # otherwise append to the log file (live-OS default).
 if [ "${MINER_FOREGROUND:-0}" = "1" ]; then
