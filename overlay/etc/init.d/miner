@@ -9,6 +9,6 @@ output_log="/var/log/miner.log"
 error_log="/var/log/miner.log"
 
 depend() {
-    need net
+    after net
     after firewall
 }

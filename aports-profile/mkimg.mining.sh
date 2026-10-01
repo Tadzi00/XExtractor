@@ -27,6 +27,7 @@ msr.allow_writes=on"
 		lsblk
 		e2fsprogs
 		dosfstools
+		exfatprogs
 		"
 
 	# Overlay generator (services + scripts).

@@ -77,6 +77,11 @@ chmod +x aports/scripts/genapkovl-mining.sh
 echo ">> Running mkimage.sh (this downloads packages and builds the ISO)..."
 cd "$WORK/aports/scripts"
 export OVERLAY_DIR=/project/overlay
+# Bake the project's miner.conf into the image as a fallback config.
+if [ -f /project/miner.conf ]; then
+	export BAKE_CONF=/project/miner.conf
+	echo ">> Baking /project/miner.conf into the image (USB config still wins)"
+fi
 sh mkimage.sh \
 	--tag "$ALPINE_BRANCH" \
 	--outdir "$OUT" \

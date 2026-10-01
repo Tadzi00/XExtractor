@@ -68,4 +68,31 @@ makefile root:root 0644 "$tmp"/etc/modules-load.d/miner.conf <<MOD
 msr
 MOD
 
-tar -c -C "$tmp" etc usr | gzip -9n > "$HOSTNAME.apkovl.tar.gz"
+# --- 6. Login banner (normal console login: root, blank password) -------------
+# (No custom inittab / autologin -- the base getty login is used.)
+makefile root:root 0644 "$tmp"/root/.profile <<'PROFILE'
+echo
+echo "==================  Monero RAM Miner  =================="
+echo " log      : tail -f /var/log/miner.log"
+echo " status   : rc-service miner status ; pgrep -a xmrig"
+echo " hashrate : grep speed /var/log/miner.log | tail -1"
+echo " config   : cat /run/miner/miner.env"
+echo "======================================================="
+grep -E 'config loaded|baked-in|NO miner.conf|launching xmrig' \
+    /var/log/miner.log 2>/dev/null | tail -4
+echo
+PROFILE
+
+# --- 7. Baked-in fallback config (optional) -----------------------------------
+# build.sh sets BAKE_CONF to the project's miner.conf so the rig mines to the
+# right wallet even if the USB config partition can't be read. USB config still
+# takes precedence (see miner-start.sh find_config order).
+INCLUDE_ROOT=""
+if [ -n "${BAKE_CONF:-}" ] && [ -f "$BAKE_CONF" ]; then
+	cp "$BAKE_CONF" "$tmp"/miner.conf
+	chmod 0644 "$tmp"/miner.conf
+	chown root:root "$tmp"/miner.conf 2>/dev/null || true
+	INCLUDE_ROOT="miner.conf"
+fi
+
+tar -c -C "$tmp" etc usr root $INCLUDE_ROOT | gzip -9n > "$HOSTNAME.apkovl.tar.gz"

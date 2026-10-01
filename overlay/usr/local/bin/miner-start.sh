@@ -41,10 +41,24 @@ list_parts() {
     }' | sort -n | awk '{print $2}'
 }
 
+load_fs_modules() {
+  # Make sure the kernel can read FAT/exFAT/NTFS config partitions (Ventoy's
+  # data partition is exFAT by default). Harmless if already built in.
+  for m in vfat exfat ntfs3 nls_cp437 nls_iso8859-1 nls_utf8; do
+    modprobe "$m" 2>/dev/null || true
+  done
+}
+
 try_mount_ro() {
   dev="$1"
   umount "$MNT" 2>/dev/null
-  mount -o ro "$dev" "$MNT" 2>/dev/null
+  # Try auto-detect first, then explicit types (handles exFAT/NTFS where the
+  # auto mount helper isn't wired up).
+  mount -o ro "$dev" "$MNT" 2>/dev/null && return 0
+  for t in exfat vfat ntfs3 ntfs ext4; do
+    mount -t "$t" -o ro "$dev" "$MNT" 2>/dev/null && return 0
+  done
+  return 1
 }
 
 # Sets CFG_FILE to the config path found, and CFG_MOUNTED=1 if a partition was
@@ -52,12 +66,10 @@ try_mount_ro() {
 CFG_FILE=""
 CFG_MOUNTED=0
 find_config() {
+  load_fs_modules
   # Pass 0: an explicit file (bind-mount / container / manual override).
   if [ -n "${MINER_CONF:-}" ] && [ -f "$MINER_CONF" ]; then
     CFG_FILE="$MINER_CONF"; log "using MINER_CONF=$MINER_CONF"; return 0
-  fi
-  if [ -f /miner.conf ]; then
-    CFG_FILE="/miner.conf"; return 0
   fi
   # Pass 1: partition labeled MINERCFG.
   label_dev="$(blkid -o device -t LABEL=MINERCFG 2>/dev/null | head -n1)"
@@ -65,13 +77,18 @@ find_config() {
     CFG_FILE="$MNT/miner.conf"; CFG_MOUNTED=1; log "found config on $label_dev"; return 0
   fi
   umount "$MNT" 2>/dev/null
-  # Pass 2: any partition carrying miner.conf at its root.
+  # Pass 2: any partition carrying miner.conf at its root (Ventoy exFAT, EFI, ...).
   for dev in $(list_parts); do
     if try_mount_ro "$dev" && [ -f "$MNT/miner.conf" ]; then
       CFG_FILE="$MNT/miner.conf"; CFG_MOUNTED=1; log "found config on $dev"; return 0
     fi
     umount "$MNT" 2>/dev/null
   done
+  # Pass 3: baked-in config (fallback, so the rig still mines to the right
+  # wallet even if the USB config partition can't be read).
+  if [ -f /miner.conf ]; then
+    CFG_FILE="/miner.conf"; log "using baked-in /miner.conf (no USB config found)"; return 0
+  fi
   return 1
 }
 
