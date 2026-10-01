@@ -49,58 +49,47 @@ if ! apk list --no-cache -q "xmrig" \
 	echo "   (could not confirm via apk list; continuing — mkimage will error if missing)"
 fi
 
-# mkimage/abuild refuse to run as root: set up an unprivileged build user.
-if ! id builder >/dev/null 2>&1; then
-	echo ">> Creating 'builder' user..."
-	adduser -D builder
-	addgroup builder abuild 2>/dev/null || true
-	echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
-fi
-
-WORK=/home/builder/work
-OUT=/home/builder/out
+# Build as root. This avoids apk's non-root "--usermode" database error, and
+# lets mkimage's OWN internal fakeroot (used for the apkovl) run un-nested
+# (wrapping the whole of mkimage in fakeroot triggers "nested operation not
+# yet supported").
+WORK=/root/work
+OUT=/root/out
 rm -rf "$WORK" && mkdir -p "$WORK" "$OUT"
-chown -R builder:builder /home/builder
 
-echo ">> Preparing aports + profile as 'builder'..."
-su builder -s /bin/sh -c '
-	set -eu
-	cd /home/builder/work
-	# Signing keys for the local apk index mkimage generates.
-	abuild-keygen -n -a
-	# Clone just what mkimage needs. aports branches are named e.g. "3.21-stable".
-	APORTS_BRANCH="$(echo '"$ALPINE_BRANCH"' | sed "s/^v//")-stable"
-	git clone --depth=1 --branch "$APORTS_BRANCH" \
-		https://gitlab.alpinelinux.org/alpine/aports.git || \
-	git clone --depth=1 \
-		https://gitlab.alpinelinux.org/alpine/aports.git
-	# Install our custom profile + overlay generator.
-	cp /project/aports-profile/mkimg.mining.sh      aports/scripts/
-	cp /project/aports-profile/genapkovl-mining.sh  aports/scripts/
-	chmod +x aports/scripts/genapkovl-mining.sh
-'
+echo ">> Generating signing keys (installed into /etc/apk/keys)..."
+abuild-keygen -n -a -i
+# Belt-and-braces: ensure the pubkey is trusted system-wide.
+cp -n /root/.abuild/*.rsa.pub /etc/apk/keys/ 2>/dev/null || true
 
-# Install builder's public key system-wide so apk trusts the signed local index.
-cp /home/builder/.abuild/*.rsa.pub /etc/apk/keys/
+echo ">> Preparing aports + profile..."
+cd "$WORK"
+# aports branches are named e.g. "3.21-stable".
+APORTS_BRANCH="$(echo "$ALPINE_BRANCH" | sed 's/^v//')-stable"
+git clone --depth=1 --branch "$APORTS_BRANCH" \
+	https://gitlab.alpinelinux.org/alpine/aports.git || \
+git clone --depth=1 \
+	https://gitlab.alpinelinux.org/alpine/aports.git
+cp /project/aports-profile/mkimg.mining.sh      aports/scripts/
+cp /project/aports-profile/genapkovl-mining.sh  aports/scripts/
+chmod +x aports/scripts/genapkovl-mining.sh
 
 echo ">> Running mkimage.sh (this downloads packages and builds the ISO)..."
-su builder -s /bin/sh -c '
-	set -eu
-	cd /home/builder/work/aports/scripts
-	export OVERLAY_DIR=/project/overlay
-	# Run under fakeroot: newer apk-tools refuse to create the image package
-	# database as a non-root user without --usermode; fakeroot makes euid 0.
-	fakeroot sh mkimage.sh \
-		--tag '"$ALPINE_BRANCH"' \
-		--outdir /home/builder/out \
-		--arch '"$ARCH"' \
-		--repository '"$MIRROR/$ALPINE_BRANCH/main"' \
-		--repository '"$MIRROR/$ALPINE_BRANCH/community"' \
-		--profile mining
-'
+cd "$WORK/aports/scripts"
+export OVERLAY_DIR=/project/overlay
+sh mkimage.sh \
+	--tag "$ALPINE_BRANCH" \
+	--outdir "$OUT" \
+	--arch "$ARCH" \
+	--repository "$MIRROR/$ALPINE_BRANCH/main" \
+	--repository "$MIRROR/$ALPINE_BRANCH/community" \
+	--profile mining
 
 echo ">> Copying ISO to /project/out ..."
+mkdir -p /project/out
 cp -v "$OUT"/*.iso /project/out/
+# Match host ownership of the mounted project dir so the ISO isn't root-locked.
+chown "$(stat -c %u /project):$(stat -c %g /project)" /project/out/*.iso 2>/dev/null || true
 echo ""
 echo ">> DONE. ISO(s):"
 ls -lh /project/out/*.iso
