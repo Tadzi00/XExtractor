@@ -105,7 +105,9 @@ load_config() {
   # Only accept KEY=VALUE lines for a known allowlist of keys (no code execution).
   while IFS='=' read -r key val; do
     key="$(printf '%s' "$key" | tr -d ' \t\r')"
-    val="$(printf '%s' "$val" | sed 's/[[:space:]]*#.*$//; s/^[[:space:]]*//; s/[[:space:]]*$//; s/\r$//')"
+    # Strip an inline comment only when '#' is preceded by whitespace, so values
+    # containing '#' (e.g. WiFi passwords, SSIDs) are kept intact.
+    val="$(printf '%s' "$val" | sed 's/[[:space:]]#.*$//; s/^[[:space:]]*//; s/[[:space:]]*$//; s/\r$//')"
     case "$key" in
       POOL_URL|WALLET|WORKER_NAME|POOL_TLS|MAX_TEMP_C|MONITOR_PORT|MONITOR_TOKEN|CPU_MAX_THREADS_HINT|WIFI_SSID|WIFI_PASS|WIFI_COUNTRY)
         [ -n "$val" ] && eval "$key=\$val" ;;
