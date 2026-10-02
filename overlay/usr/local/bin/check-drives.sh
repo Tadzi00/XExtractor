@@ -16,19 +16,25 @@ echo "== Kernel partitions (/proc/partitions) =="
 cat /proc/partitions 2>/dev/null
 
 echo
-echo "== Block devices =="
-lsblk -o NAME,SIZE,FSTYPE,LABEL 2>/dev/null || blkid 2>/dev/null \
-  || echo "  (lsblk/blkid unavailable)"
+echo "== Filesystems (blkid) =="
+blkid 2>/dev/null || echo "  (blkid found nothing)"
 
 echo
 echo "== Scanning partitions for miner.conf =="
 MNT=/run/checkdrives
 mkdir -p "$MNT"
-parts="$(lsblk -rpno NAME,TYPE 2>/dev/null | awk '$2=="part"{print $1}')"
+# Enumerate via blkid (lsblk is unreliable on these live systems); skip
+# loop/ram/squashfs/iso media.
+parts="$(blkid 2>/dev/null | while IFS= read -r line; do
+  dev="${line%%:*}"
+  case "$dev" in *loop*|*/ram*) continue ;; esac
+  case "$line" in *TYPE=\"squashfs\"*|*TYPE=\"iso9660\"*) continue ;; esac
+  echo "$dev"
+done)"
 if [ -z "$parts" ]; then
-  echo "  !! No partitions visible at all."
-  echo "     The USB stick isn't being exposed to the system (common when"
-  echo "     booting via Ventoy). The fix is to flash the ISO directly instead."
+  echo "  !! No filesystems found by blkid at all."
+  echo "     The USB stick isn't being exposed to the system. If booting via"
+  echo "     Ventoy doesn't help, flash the ISO directly instead."
   exit 0
 fi
 

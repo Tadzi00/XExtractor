@@ -39,14 +39,19 @@ MNT="/run/minercfg"
 mkdir -p "$MNT"
 
 list_parts() {
-  # full device paths of partitions, most-likely-config filesystems first
-  lsblk -rpno NAME,TYPE,FSTYPE 2>/dev/null | awk '
-    $2=="part" {
-      prio=3
-      if ($3=="vfat" || $3=="exfat") prio=1
-      else if ($3=="ntfs") prio=2
-      print prio, $1
-    }' | sort -n | awk '{print $2}'
+  # Enumerate filesystems via blkid -- lsblk (often the limited busybox applet)
+  # returns nothing on these live systems, which is why partitions were "not
+  # found". Prioritise FAT/exFAT/NTFS; skip loop/ram/squashfs/iso media.
+  blkid 2>/dev/null | while IFS= read -r line; do
+    dev="${line%%:*}"
+    case "$dev" in *loop*|*/ram*) continue ;; esac
+    case "$line" in
+      *TYPE=\"squashfs\"*|*TYPE=\"iso9660\"*) continue ;;
+      *TYPE=\"vfat\"*|*TYPE=\"exfat\"*) echo "1 $dev" ;;
+      *TYPE=\"ntfs\"*)                  echo "2 $dev" ;;
+      *)                                echo "3 $dev" ;;
+    esac
+  done | sort -n | awk '{print $2}'
 }
 
 load_fs_modules() {
@@ -87,9 +92,8 @@ find_config() {
   log "kernel partitions (/proc/partitions):"
   grep -E '[0-9]' /proc/partitions 2>/dev/null | tail -n +1 \
     | while read -r l; do log "  $l"; done
-  log "block devices (lsblk):"
-  lsblk -rpno NAME,TYPE,FSTYPE,SIZE,LABEL 2>/dev/null | grep -E ' part ' \
-    | while read -r line; do log "  $line"; done
+  log "filesystems (blkid):"
+  blkid 2>/dev/null | while read -r line; do log "  $line"; done
   # Pass 0: an explicit file (bind-mount / container / manual override).
   if [ -n "${MINER_CONF:-}" ] && [ -f "$MINER_CONF" ]; then
     CFG_FILE="$MINER_CONF"; CONFIG_SOURCE="file ($MINER_CONF)"; log "using MINER_CONF=$MINER_CONF"; return 0
