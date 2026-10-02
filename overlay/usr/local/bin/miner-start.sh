@@ -160,25 +160,51 @@ bring_up_wifi() {
     return 1
   fi
   log "WiFi: bringing up $WIFI_DEV (SSID='$WIFI_SSID')"
+  # Build wpa_supplicant.conf. ctrl_interface lets wifi-status query state via wpa_cli.
+  {
+    printf 'ctrl_interface=/var/run/wpa_supplicant\n'
+    printf 'update_config=1\n'
+    printf 'country=%s\n' "$WIFI_COUNTRY"
+  } > /run/wpa_supplicant.conf
   if [ -n "$WIFI_PASS" ]; then
-    wpa_passphrase "$WIFI_SSID" "$WIFI_PASS" > /run/wpa_supplicant.conf 2>/dev/null \
-      || { log "WiFi: wpa_passphrase failed (password too short? needs 8-63 chars)"; }
+    if ! wpa_passphrase "$WIFI_SSID" "$WIFI_PASS" >> /run/wpa_supplicant.conf 2>/dev/null; then
+      log "WiFi FAILED: bad passphrase (WPA passwords must be 8-63 characters)"
+      return 1
+    fi
   else
-    printf 'network={\n  ssid="%s"\n  key_mgmt=NONE\n}\n' "$WIFI_SSID" > /run/wpa_supplicant.conf
+    printf 'network={\n  ssid="%s"\n  key_mgmt=NONE\n}\n' "$WIFI_SSID" >> /run/wpa_supplicant.conf
   fi
-  printf 'country=%s\n' "$WIFI_COUNTRY" | cat - /run/wpa_supplicant.conf > /run/wpa_supplicant.conf.tmp \
-    && mv /run/wpa_supplicant.conf.tmp /run/wpa_supplicant.conf
   ip link set "$WIFI_DEV" up 2>/dev/null
-  wpa_supplicant -B -i "$WIFI_DEV" -c /run/wpa_supplicant.conf >>"$LOG" 2>&1 \
+  rm -f /var/log/wpa.log
+  wpa_supplicant -B -i "$WIFI_DEV" -c /run/wpa_supplicant.conf -f /var/log/wpa.log >>"$LOG" 2>&1 \
     || log "WiFi: wpa_supplicant failed to start"
   udhcpc -i "$WIFI_DEV" -b -t 10 -T 3 >>"$LOG" 2>&1 &
-  # Give association + DHCP a few seconds, then record the outcome.
-  sleep 5
-  if ip -4 addr show "$WIFI_DEV" 2>/dev/null | grep -q 'inet '; then
-    log "WiFi OK: $WIFI_DEV got $(ip -4 addr show "$WIFI_DEV" | awk '/inet /{print $2}')"
+
+  # Wait for association and classify the outcome (up to ~18s).
+  state=""; i=0
+  while [ "$i" -lt 18 ]; do
+    state="$(wpa_cli -i "$WIFI_DEV" status 2>/dev/null | sed -n 's/^wpa_state=//p')"
+    [ "$state" = "COMPLETED" ] && break
+    grep -qiE 'WRONG_KEY|4-Way Handshake failed|pre-shared key may be incorrect' \
+      /var/log/wpa.log 2>/dev/null && break
+    sleep 1; i=$((i+1))
+  done
+
+  if [ "$state" = "COMPLETED" ]; then
+    ip4="$(ip -4 addr show "$WIFI_DEV" 2>/dev/null | awk '/inet /{print $2}')"
+    [ -z "$ip4" ] && { sleep 3; ip4="$(ip -4 addr show "$WIFI_DEV" 2>/dev/null | awk '/inet /{print $2}')"; }
+    if [ -n "$ip4" ]; then
+      log "WiFi OK: associated to '$WIFI_SSID', IP $ip4"
+    else
+      log "WiFi: associated to '$WIFI_SSID' but DHCP gave no IP (router issue?)"
+    fi
+  elif grep -qiE 'WRONG_KEY|4-Way Handshake failed|pre-shared key may be incorrect' \
+       /var/log/wpa.log 2>/dev/null; then
+    log "WiFi FAILED: WRONG PASSWORD for '$WIFI_SSID' (authentication / 4-way handshake failed)"
+  elif ! wpa_cli -i "$WIFI_DEV" scan_results 2>/dev/null | grep -qF "$WIFI_SSID"; then
+    log "WiFi FAILED: network '$WIFI_SSID' not found (wrong name, 5GHz-only, or out of range)"
   else
-    log "WiFi: $WIFI_DEV up but no IP yet (wrong password, SSID not in range, or slow DHCP)."
-    log "  -> run 'wifi-status' after login for details."
+    log "WiFi FAILED: could not connect to '$WIFI_SSID' (state=${state:-unknown}); run 'wifi-status'"
   fi
 }
 
@@ -229,14 +255,17 @@ JSON
 }
 
 write_env() {
-  cat > "$ENV_FILE" <<ENV
-MAX_TEMP_C=${MAX_TEMP_C}
-MONITOR_PORT=${MONITOR_PORT}
-MONITOR_TOKEN=${MONITOR_TOKEN}
-WORKER_NAME=${WORKER_NAME}
-WIFI_SSID=${WIFI_SSID}
-WIFI_DEV=${WIFI_DEV}
-ENV
+  # Single-quote values (escaping embedded quotes) so they survive `.` sourcing
+  # even with spaces or special characters, e.g. WIFI_SSID='Home Net 5G'.
+  _q() { printf "%s='%s'\n" "$1" "$(printf '%s' "$2" | sed "s/'/'\\\\''/g")"; }
+  {
+    _q MAX_TEMP_C   "$MAX_TEMP_C"
+    _q MONITOR_PORT "$MONITOR_PORT"
+    _q MONITOR_TOKEN "$MONITOR_TOKEN"
+    _q WORKER_NAME  "$WORKER_NAME"
+    _q WIFI_SSID    "$WIFI_SSID"
+    _q WIFI_DEV     "$WIFI_DEV"
+  } > "$ENV_FILE"
 }
 
 # ----- Main -------------------------------------------------------------------

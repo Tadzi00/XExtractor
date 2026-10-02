@@ -35,13 +35,21 @@ fi
 echo "interface       : $dev"
 echo "link state      : $(cat /sys/class/net/$dev/operstate 2>/dev/null)"
 
-if command -v iw >/dev/null 2>&1; then
-  ssid_now="$(iw dev "$dev" link 2>/dev/null | awk -F': ' '/SSID/{print $2}')"
-  if [ -n "$ssid_now" ]; then
-    echo "associated      : yes ($ssid_now)"
-  else
-    echo "associated      : NO -- wrong password, or SSID not in range"
-  fi
+# Classify association using wpa_cli state + the wpa_supplicant log.
+state=""
+command -v wpa_cli >/dev/null 2>&1 && \
+  state="$(wpa_cli -i "$dev" status 2>/dev/null | sed -n 's/^wpa_state=//p')"
+echo "wpa_state       : ${state:-unknown}"
+
+if [ "$state" = "COMPLETED" ]; then
+  ssid_now="$(wpa_cli -i "$dev" status 2>/dev/null | sed -n 's/^ssid=//p')"
+  echo "associated      : yes ($ssid_now)"
+elif grep -qiE 'WRONG_KEY|4-Way Handshake failed|pre-shared key may be incorrect' /var/log/wpa.log 2>/dev/null; then
+  echo "associated      : NO  ==> WRONG PASSWORD (authentication failed)"
+elif command -v wpa_cli >/dev/null 2>&1 && ! wpa_cli -i "$dev" scan_results 2>/dev/null | grep -qF "$WIFI_SSID"; then
+  echo "associated      : NO  ==> network '$WIFI_SSID' not found (wrong name, 5GHz-only, or out of range)"
+else
+  echo "associated      : NO  (state=${state:-unknown})"
 fi
 
 ip4="$(ip -4 addr show "$dev" 2>/dev/null | awk '/inet /{print $2}')"
