@@ -72,13 +72,15 @@ MOD
 # (No custom inittab / autologin -- the base getty login is used.)
 makefile root:root 0644 "$tmp"/root/.profile <<'PROFILE'
 alias wifi-status='/usr/local/bin/wifi-status.sh'
+alias check-drives='/usr/local/bin/check-drives.sh'
 echo
 echo "==================  Monero RAM Miner  =================="
-echo " log      : tail -f /var/log/miner.log"
-echo " status   : rc-service miner status ; pgrep -a xmrig"
-echo " hashrate : grep speed /var/log/miner.log | tail -1"
-echo " config   : cat /run/miner/miner.env"
-echo " wifi     : wifi-status"
+echo " log        : tail -f /var/log/miner.log"
+echo " status     : rc-service miner status ; pgrep -a xmrig"
+echo " hashrate   : grep speed /var/log/miner.log | tail -1"
+echo " config     : cat /run/miner/miner.env"
+echo " wifi       : wifi-status"
+echo " find stick : check-drives"
 echo "======================================================="
 grep -E 'config loaded|baked-in|NO miner.conf|launching xmrig|WiFi' \
     /var/log/miner.log 2>/dev/null | tail -6
