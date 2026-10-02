@@ -50,11 +50,18 @@ list_parts() {
 }
 
 load_fs_modules() {
-  # Make sure the kernel can read FAT/exFAT/NTFS config partitions (Ventoy's
-  # data partition is exFAT by default). Harmless if already built in.
-  for m in vfat exfat ntfs3 nls_cp437 nls_iso8859-1 nls_utf8; do
+  # 1) USB mass-storage + SCSI disk drivers so the stick appears as /dev/sd*.
+  #    When booted via Ventoy these aren't always loaded, so the config
+  #    partition is invisible ("no USB partitions detected").
+  # 2) Filesystem drivers so FAT/exFAT/NTFS partitions can be mounted.
+  for m in usb_storage uas usb_common sd_mod \
+           vfat exfat ntfs3 nls_cp437 nls_iso8859-1 nls_utf8; do
     modprobe "$m" 2>/dev/null || true
   done
+  # Give USB mass-storage a moment to enumerate, then (re)create device nodes
+  # (Alpine live uses mdev, which may not have caught the late-appearing disk).
+  sleep 2
+  mdev -s 2>/dev/null || true
 }
 
 try_mount_ro() {
@@ -76,8 +83,11 @@ CFG_MOUNTED=0
 CONFIG_SOURCE=""     # human-readable, recorded in miner.env for wifi-status
 find_config() {
   load_fs_modules
-  # Diagnostics: show every block partition the system can see + its filesystem.
-  log "block devices seen:"
+  # Diagnostics: raw kernel partition list + lsblk view.
+  log "kernel partitions (/proc/partitions):"
+  grep -E '[0-9]' /proc/partitions 2>/dev/null | tail -n +1 \
+    | while read -r l; do log "  $l"; done
+  log "block devices (lsblk):"
   lsblk -rpno NAME,TYPE,FSTYPE,SIZE,LABEL 2>/dev/null | grep -E ' part ' \
     | while read -r line; do log "  $line"; done
   # Pass 0: an explicit file (bind-mount / container / manual override).
