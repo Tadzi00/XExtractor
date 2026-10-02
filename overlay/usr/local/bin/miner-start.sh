@@ -308,6 +308,32 @@ write_env() {
   } > "$ENV_FILE"
 }
 
+# ----- Ensure required packages are installed ---------------------------------
+# The live image bundles our packages under /apks on the boot media but doesn't
+# always install them into the running root. Install any that are missing, from
+# the on-media repo (works offline -- important, since WiFi isn't up yet).
+ensure_packages() {
+  missing=""
+  add_missing() { case " $missing " in *" $1 "*) ;; *) missing="$missing $1" ;; esac; }
+  command -v xmrig          >/dev/null 2>&1 || add_missing xmrig
+  command -v wpa_supplicant >/dev/null 2>&1 || { add_missing wpa_supplicant; add_missing wireless-regdb; }
+  command -v iw             >/dev/null 2>&1 || add_missing iw
+  command -v rfkill         >/dev/null 2>&1 || add_missing rfkill
+  command -v lsblk          >/dev/null 2>&1 || add_missing util-linux
+  [ -n "$missing" ] || return 0
+  # Make sure the on-media apks repo is a known repository (offline install).
+  for d in /media/*/apks /run/media/*/apks /.modloop/apks /mnt/*/apks; do
+    [ -d "$d" ] && ! grep -qxF "$d" /etc/apk/repositories 2>/dev/null \
+      && echo "$d" >> /etc/apk/repositories
+  done
+  log "installing missing bundled packages:$missing"
+  if apk add --no-progress $missing >>"$LOG" 2>&1; then
+    log "packages installed OK"
+  else
+    log "apk add failed -- could not install:$missing (no local repo/network)"
+  fi
+}
+
 # ----- Main -------------------------------------------------------------------
 log "starting; searching for miner.conf ..."
 if find_config; then
@@ -323,6 +349,7 @@ if [ "$WALLET" = "YOUR_MONERO_ADDRESS_HERE" ]; then
   log "WARNING: wallet is still the placeholder; set it in miner.conf."
 fi
 
+ensure_packages
 bring_up_wifi
 tune_cpu
 write_env
