@@ -196,8 +196,18 @@ bring_up_wifi() {
     printf 'country=%s\n' "$WIFI_COUNTRY"
   } > /run/wpa_supplicant.conf
   if [ -n "$WIFI_PASS" ]; then
+    if ! command -v wpa_passphrase >/dev/null 2>&1; then
+      log "WiFi FAILED: wpa_passphrase missing (wpa_supplicant not installed)."
+      log "  -> run: apk add wpa_supplicant wireless-regdb ; then: rc-service miner restart"
+      return 1
+    fi
+    plen=$(printf '%s' "$WIFI_PASS" | wc -c)
+    if [ "$plen" -lt 8 ] || [ "$plen" -gt 63 ]; then
+      log "WiFi FAILED: WIFI_PASS is ${plen} chars; WPA requires 8-63."
+      return 1
+    fi
     if ! wpa_passphrase "$WIFI_SSID" "$WIFI_PASS" >> /run/wpa_supplicant.conf 2>/dev/null; then
-      log "WiFi FAILED: bad passphrase (WPA passwords must be 8-63 characters)"
+      log "WiFi FAILED: wpa_passphrase rejected the SSID/password."
       return 1
     fi
   else
