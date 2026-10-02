@@ -203,10 +203,20 @@ bring_up_wifi() {
   else
     printf 'network={\n  ssid="%s"\n  key_mgmt=NONE\n}\n' "$WIFI_SSID" >> /run/wpa_supplicant.conf
   fi
+  # Clear any rfkill soft/hard block (laptops often boot with WiFi blocked).
+  rfkill unblock all 2>/dev/null || true
+  rfkill unblock wifi 2>/dev/null || true
   ip link set "$WIFI_DEV" up 2>/dev/null
   rm -f /var/log/wpa.log
-  wpa_supplicant -B -i "$WIFI_DEV" -c /run/wpa_supplicant.conf -f /var/log/wpa.log >>"$LOG" 2>&1 \
-    || log "WiFi: wpa_supplicant failed to start"
+  # Kill any stale instance, then start with nl80211 (modern) + wext fallback.
+  pkill -x wpa_supplicant 2>/dev/null
+  if wpa_supplicant -B -Dnl80211,wext -i "$WIFI_DEV" -c /run/wpa_supplicant.conf \
+       -f /var/log/wpa.log >>"$LOG" 2>&1; then
+    log "WiFi: wpa_supplicant started on $WIFI_DEV"
+  else
+    log "WiFi FAILED: wpa_supplicant did not start (see /var/log/wpa.log):"
+    tail -3 /var/log/wpa.log 2>/dev/null | sed 's/^/     /' | while read -r l; do log "$l"; done
+  fi
   udhcpc -i "$WIFI_DEV" -b -t 10 -T 3 >>"$LOG" 2>&1 &
 
   # Wait for association and classify the outcome (up to ~18s).

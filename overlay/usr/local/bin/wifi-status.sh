@@ -62,9 +62,23 @@ fi
 ip4="$(ip -4 addr show "$dev" 2>/dev/null | awk '/inet /{print $2}')"
 [ -n "$ip4" ] && echo "IP address      : $ip4" || echo "IP address      : none (DHCP not completed)"
 
-pgrep -x wpa_supplicant >/dev/null 2>&1 \
-  && echo "wpa_supplicant  : running" \
-  || echo "wpa_supplicant  : NOT running"
+if pgrep -x wpa_supplicant >/dev/null 2>&1; then
+  echo "wpa_supplicant  : running"
+else
+  echo "wpa_supplicant  : NOT running  <== nothing is trying to connect"
+fi
+
+# rfkill (WiFi radio blocked?)
+if command -v rfkill >/dev/null 2>&1; then
+  blk="$(rfkill list 2>/dev/null | grep -iA2 'wlan\|wireless' | grep -i 'blocked: yes')"
+  [ -n "$blk" ] && echo "rfkill          : BLOCKED (radio disabled) -> run: rfkill unblock all"
+fi
+
+# Last few wpa_supplicant log lines explain a failed start.
+if [ -s /var/log/wpa.log ]; then
+  echo "wpa.log (tail)  :"
+  tail -4 /var/log/wpa.log 2>/dev/null | sed 's/^/  /'
+fi
 
 fwerr="$(dmesg 2>/dev/null | grep -iE 'firmware' | grep -iE 'fail|error|direct|not found' | tail -3)"
 if [ -n "$fwerr" ]; then
