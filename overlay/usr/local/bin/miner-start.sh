@@ -133,30 +133,44 @@ tune_cpu() {
 # If WIFI_SSID is set in miner.conf, join that network. Wired machines leave
 # WIFI_SSID blank and this is skipped. XMRig uses `after net`, so it just retries
 # until this brings the link up.
+WIFI_DEV=""      # set by bring_up_wifi; recorded in miner.env for wifi-status
 bring_up_wifi() {
-  [ -n "$WIFI_SSID" ] || return 0
+  [ -n "$WIFI_SSID" ] || { log "WiFi: not configured (wired)"; return 0; }
   # Find the first wireless interface.
-  wdev=""
   for d in /sys/class/net/*/wireless; do
     [ -e "$d" ] || continue
-    wdev="$(basename "$(dirname "$d")")"; break
+    WIFI_DEV="$(basename "$(dirname "$d")")"; break
   done
-  if [ -z "$wdev" ]; then
-    log "WIFI_SSID set but no wireless interface found (missing driver/firmware?)"
+  if [ -z "$WIFI_DEV" ]; then
+    log "WiFi FAILED: no wireless interface found for SSID '$WIFI_SSID'."
+    log "  -> the WiFi chip's driver/firmware isn't loaded. Check on the rig:"
+    log "     dmesg | grep -iE 'firmware|iwlwifi|ath|rtw|brcm|mt7'"
+    # Surface firmware load failures straight into the log.
+    dmesg 2>/dev/null | grep -iE 'firmware' | grep -iE 'fail|error|direct|not found' \
+      | tail -3 | sed 's/^/     dmesg: /' | while read -r l; do log "$l"; done
     return 1
   fi
-  log "bringing up WiFi on $wdev (SSID=$WIFI_SSID)"
-  mkdir -p /run/wpa_supplicant
-  wpa_passphrase "$WIFI_SSID" "$WIFI_PASS" > /run/wpa_supplicant.conf 2>/dev/null || {
-    # Open network (no password).
+  log "WiFi: bringing up $WIFI_DEV (SSID='$WIFI_SSID')"
+  if [ -n "$WIFI_PASS" ]; then
+    wpa_passphrase "$WIFI_SSID" "$WIFI_PASS" > /run/wpa_supplicant.conf 2>/dev/null \
+      || { log "WiFi: wpa_passphrase failed (password too short? needs 8-63 chars)"; }
+  else
     printf 'network={\n  ssid="%s"\n  key_mgmt=NONE\n}\n' "$WIFI_SSID" > /run/wpa_supplicant.conf
-  }
+  fi
   printf 'country=%s\n' "$WIFI_COUNTRY" | cat - /run/wpa_supplicant.conf > /run/wpa_supplicant.conf.tmp \
     && mv /run/wpa_supplicant.conf.tmp /run/wpa_supplicant.conf
-  ip link set "$wdev" up 2>/dev/null
-  wpa_supplicant -B -i "$wdev" -c /run/wpa_supplicant.conf >>"$LOG" 2>&1
-  udhcpc -i "$wdev" -b -t 10 -T 3 >>"$LOG" 2>&1 &
-  log "WiFi association started on $wdev"
+  ip link set "$WIFI_DEV" up 2>/dev/null
+  wpa_supplicant -B -i "$WIFI_DEV" -c /run/wpa_supplicant.conf >>"$LOG" 2>&1 \
+    || log "WiFi: wpa_supplicant failed to start"
+  udhcpc -i "$WIFI_DEV" -b -t 10 -T 3 >>"$LOG" 2>&1 &
+  # Give association + DHCP a few seconds, then record the outcome.
+  sleep 5
+  if ip -4 addr show "$WIFI_DEV" 2>/dev/null | grep -q 'inet '; then
+    log "WiFi OK: $WIFI_DEV got $(ip -4 addr show "$WIFI_DEV" | awk '/inet /{print $2}')"
+  else
+    log "WiFi: $WIFI_DEV up but no IP yet (wrong password, SSID not in range, or slow DHCP)."
+    log "  -> run 'wifi-status' after login for details."
+  fi
 }
 
 # ----- Generate XMRig config ---------------------------------------------------
@@ -211,6 +225,8 @@ MAX_TEMP_C=${MAX_TEMP_C}
 MONITOR_PORT=${MONITOR_PORT}
 MONITOR_TOKEN=${MONITOR_TOKEN}
 WORKER_NAME=${WORKER_NAME}
+WIFI_SSID=${WIFI_SSID}
+WIFI_DEV=${WIFI_DEV}
 ENV
 }
 

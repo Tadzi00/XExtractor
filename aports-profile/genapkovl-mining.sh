@@ -71,16 +71,23 @@ MOD
 # --- 6. Login banner (normal console login: root, blank password) -------------
 # (No custom inittab / autologin -- the base getty login is used.)
 makefile root:root 0644 "$tmp"/root/.profile <<'PROFILE'
+alias wifi-status='/usr/local/bin/wifi-status.sh'
 echo
 echo "==================  Monero RAM Miner  =================="
 echo " log      : tail -f /var/log/miner.log"
 echo " status   : rc-service miner status ; pgrep -a xmrig"
 echo " hashrate : grep speed /var/log/miner.log | tail -1"
 echo " config   : cat /run/miner/miner.env"
+echo " wifi     : wifi-status"
 echo "======================================================="
-grep -E 'config loaded|baked-in|NO miner.conf|launching xmrig' \
-    /var/log/miner.log 2>/dev/null | tail -4
+grep -E 'config loaded|baked-in|NO miner.conf|launching xmrig|WiFi' \
+    /var/log/miner.log 2>/dev/null | tail -6
 echo
+# Show WiFi state only when WiFi is configured on this rig.
+if grep -q '^WIFI_SSID=.' /run/miner/miner.env 2>/dev/null; then
+    /usr/local/bin/wifi-status.sh
+    echo
+fi
 PROFILE
 
 # --- 7. Baked-in fallback config (optional) -----------------------------------

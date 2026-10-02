@@ -31,6 +31,7 @@ msr.allow_writes=on"
 		wpa_supplicant
 		wireless-regdb
 		linux-firmware
+		iw
 		"
 
 	# Overlay generator (services + scripts).
