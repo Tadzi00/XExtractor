@@ -75,6 +75,10 @@ CFG_FILE=""
 CFG_MOUNTED=0
 find_config() {
   load_fs_modules
+  # Diagnostics: show every block partition the system can see + its filesystem.
+  log "block devices seen:"
+  lsblk -rpno NAME,TYPE,FSTYPE,SIZE,LABEL 2>/dev/null | grep -E ' part ' \
+    | while read -r line; do log "  $line"; done
   # Pass 0: an explicit file (bind-mount / container / manual override).
   if [ -n "${MINER_CONF:-}" ] && [ -f "$MINER_CONF" ]; then
     CFG_FILE="$MINER_CONF"; log "using MINER_CONF=$MINER_CONF"; return 0
@@ -87,8 +91,13 @@ find_config() {
   umount "$MNT" 2>/dev/null
   # Pass 2: any partition carrying miner.conf at its root (Ventoy exFAT, EFI, ...).
   for dev in $(list_parts); do
-    if try_mount_ro "$dev" && [ -f "$MNT/miner.conf" ]; then
-      CFG_FILE="$MNT/miner.conf"; CFG_MOUNTED=1; log "found config on $dev"; return 0
+    if try_mount_ro "$dev"; then
+      if [ -f "$MNT/miner.conf" ]; then
+        CFG_FILE="$MNT/miner.conf"; CFG_MOUNTED=1; log "found config on $dev"; return 0
+      fi
+      log "  $dev: mounted OK but no miner.conf at its root"
+    else
+      log "  $dev: could not mount (unsupported filesystem?)"
     fi
     umount "$MNT" 2>/dev/null
   done
