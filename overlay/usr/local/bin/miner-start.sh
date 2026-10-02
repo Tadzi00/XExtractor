@@ -73,6 +73,7 @@ try_mount_ro() {
 # mounted for it (so main knows to unmount). Returns non-zero if nothing found.
 CFG_FILE=""
 CFG_MOUNTED=0
+CONFIG_SOURCE=""     # human-readable, recorded in miner.env for wifi-status
 find_config() {
   load_fs_modules
   # Diagnostics: show every block partition the system can see + its filesystem.
@@ -81,30 +82,44 @@ find_config() {
     | while read -r line; do log "  $line"; done
   # Pass 0: an explicit file (bind-mount / container / manual override).
   if [ -n "${MINER_CONF:-}" ] && [ -f "$MINER_CONF" ]; then
-    CFG_FILE="$MINER_CONF"; log "using MINER_CONF=$MINER_CONF"; return 0
+    CFG_FILE="$MINER_CONF"; CONFIG_SOURCE="file ($MINER_CONF)"; log "using MINER_CONF=$MINER_CONF"; return 0
   fi
   # Pass 1: partition labeled MINERCFG.
   label_dev="$(blkid -o device -t LABEL=MINERCFG 2>/dev/null | head -n1)"
   if [ -n "$label_dev" ] && try_mount_ro "$label_dev" && [ -f "$MNT/miner.conf" ]; then
-    CFG_FILE="$MNT/miner.conf"; CFG_MOUNTED=1; log "found config on $label_dev"; return 0
+    CFG_FILE="$MNT/miner.conf"; CFG_MOUNTED=1
+    CONFIG_SOURCE="USB stick ($label_dev, MINERCFG label)"; log "found config on $label_dev"; return 0
   fi
   umount "$MNT" 2>/dev/null
   # Pass 2: any partition carrying miner.conf at its root (Ventoy exFAT, EFI, ...).
+  tried=0; mountfail=0; nocfg=0
   for dev in $(list_parts); do
+    tried=$((tried+1))
     if try_mount_ro "$dev"; then
       if [ -f "$MNT/miner.conf" ]; then
-        CFG_FILE="$MNT/miner.conf"; CFG_MOUNTED=1; log "found config on $dev"; return 0
+        CFG_FILE="$MNT/miner.conf"; CFG_MOUNTED=1
+        CONFIG_SOURCE="USB stick ($dev)"; log "found config on $dev"; return 0
       fi
-      log "  $dev: mounted OK but no miner.conf at its root"
+      nocfg=$((nocfg+1)); log "  $dev: mounted OK but no miner.conf at its root"
     else
-      log "  $dev: could not mount (unsupported filesystem?)"
+      mountfail=$((mountfail+1)); log "  $dev: could not mount (unsupported filesystem?)"
     fi
     umount "$MNT" 2>/dev/null
   done
   # Pass 3: baked-in config (fallback, so the rig still mines to the right
   # wallet even if the USB config partition can't be read).
+  if [ "$tried" -eq 0 ]; then
+    why="no USB partitions detected"
+  elif [ "$nocfg" -gt 0 ] && [ "$mountfail" -eq 0 ]; then
+    why="USB mounted but no miner.conf at the root"
+  elif [ "$mountfail" -gt 0 ] && [ "$nocfg" -eq 0 ]; then
+    why="USB partition(s) could not be mounted - unsupported filesystem (try FAT32/NTFS)"
+  else
+    why="no readable USB miner.conf found"
+  fi
   if [ -f /miner.conf ]; then
-    CFG_FILE="/miner.conf"; log "using baked-in /miner.conf (no USB config found)"; return 0
+    CFG_FILE="/miner.conf"; CONFIG_SOURCE="baked-in ($why)"
+    log "using baked-in /miner.conf ($why)"; return 0
   fi
   return 1
 }
@@ -265,6 +280,7 @@ write_env() {
     _q WORKER_NAME  "$WORKER_NAME"
     _q WIFI_SSID    "$WIFI_SSID"
     _q WIFI_DEV     "$WIFI_DEV"
+    _q CONFIG_SOURCE "$CONFIG_SOURCE"
   } > "$ENV_FILE"
 }
 

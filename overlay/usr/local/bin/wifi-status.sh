@@ -4,8 +4,15 @@
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 ENV_FILE=/run/miner/miner.env
-WIFI_SSID=""; WIFI_DEV=""
+WIFI_SSID=""; WIFI_DEV=""; CONFIG_SOURCE=""
 [ -f "$ENV_FILE" ] && . "$ENV_FILE" 2>/dev/null
+
+echo "---- Config ----"
+echo "loaded from     : ${CONFIG_SOURCE:-unknown}"
+case "$CONFIG_SOURCE" in
+  USB*|file*) : ;;  # good
+  baked*)     echo "  (your USB stick's miner.conf was NOT used -- see reason above)" ;;
+esac
 
 # Re-detect the wireless interface live (in case it appeared/changed).
 dev="$WIFI_DEV"
