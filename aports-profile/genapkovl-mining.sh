@@ -70,6 +70,8 @@ MOD
 
 # --- 6. Login banner (normal console login: root, blank password) -------------
 # (No custom inittab / autologin -- the base getty login is used.)
+# Blank out the default "Welcome to Alpine!" motd; our banner is in .profile.
+makefile root:root 0644 "$tmp"/etc/motd </dev/null
 makefile root:root 0644 "$tmp"/root/.profile <<'PROFILE'
 alias wifi-status='/usr/local/bin/wifi-status.sh'
 alias check-drives='/usr/local/bin/check-drives.sh'
