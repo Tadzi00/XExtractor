@@ -229,31 +229,32 @@ bring_up_wifi() {
   fi
   udhcpc -i "$WIFI_DEV" -b -t 10 -T 3 >>"$LOG" 2>&1 &
 
-  # Wait for association and classify the outcome (up to ~18s).
-  state=""; i=0
-  while [ "$i" -lt 18 ]; do
+  # Wait for a DHCP-assigned IP -- the real proof of a working connection, and
+  # robust even if wpa_cli's control socket is flaky. Keep nudging udhcpc.
+  ip4=""; state=""; i=0
+  while [ "$i" -lt 25 ]; do
+    ip4="$(ip -4 addr show "$WIFI_DEV" 2>/dev/null | awk '/inet /{print $2}')"
+    [ -n "$ip4" ] && break
     state="$(wpa_cli -i "$WIFI_DEV" status 2>/dev/null | sed -n 's/^wpa_state=//p')"
-    [ "$state" = "COMPLETED" ] && break
+    # Wrong password shows up fast -- stop waiting.
     grep -qiE 'WRONG_KEY|4-Way Handshake failed|pre-shared key may be incorrect' \
       /var/log/wpa.log 2>/dev/null && break
+    # Re-kick DHCP once we're associated.
+    [ "$state" = "COMPLETED" ] && udhcpc -i "$WIFI_DEV" -n -q -t 3 -T 2 >>"$LOG" 2>&1
     sleep 1; i=$((i+1))
   done
 
-  if [ "$state" = "COMPLETED" ]; then
-    ip4="$(ip -4 addr show "$WIFI_DEV" 2>/dev/null | awk '/inet /{print $2}')"
-    [ -z "$ip4" ] && { sleep 3; ip4="$(ip -4 addr show "$WIFI_DEV" 2>/dev/null | awk '/inet /{print $2}')"; }
-    if [ -n "$ip4" ]; then
-      log "WiFi OK: associated to '$WIFI_SSID', IP $ip4"
-    else
-      log "WiFi: associated to '$WIFI_SSID' but DHCP gave no IP (router issue?)"
-    fi
+  if [ -n "$ip4" ]; then
+    log "WiFi OK: connected to '$WIFI_SSID', IP $ip4"
   elif grep -qiE 'WRONG_KEY|4-Way Handshake failed|pre-shared key may be incorrect' \
        /var/log/wpa.log 2>/dev/null; then
     log "WiFi FAILED: WRONG PASSWORD for '$WIFI_SSID' (authentication / 4-way handshake failed)"
-  elif ! wpa_cli -i "$WIFI_DEV" scan_results 2>/dev/null | grep -qF "$WIFI_SSID"; then
-    log "WiFi FAILED: network '$WIFI_SSID' not found (wrong name, 5GHz-only, or out of range)"
+  elif [ "$state" = "COMPLETED" ]; then
+    log "WiFi: associated to '$WIFI_SSID' but DHCP gave no IP (router issue?)"
+  elif wpa_cli -i "$WIFI_DEV" scan_results 2>/dev/null | grep -qF "$WIFI_SSID"; then
+    log "WiFi: '$WIFI_SSID' is visible but didn't connect (state=${state:-unknown}); check password"
   else
-    log "WiFi FAILED: could not connect to '$WIFI_SSID' (state=${state:-unknown}); run 'wifi-status'"
+    log "WiFi FAILED: '$WIFI_SSID' not seen in scan (wrong name, 5GHz-only, or out of range)"
   fi
 }
 
