@@ -359,10 +359,12 @@ if [ "$WALLET" = "YOUR_MONERO_ADDRESS_HERE" ]; then
   log "WARNING: wallet is still the placeholder; set it in miner.conf."
 fi
 
+write_env            # publish config/SSID/source now so wifi-status is accurate
+                     # immediately (bring_up_wifi below can take ~25s)
 ensure_packages
 bring_up_wifi
+write_env            # re-publish with WIFI_DEV filled in
 tune_cpu
-write_env
 write_xmrig_conf
 log "launching xmrig (pool=${POOL_URL} worker=${WORKER_NAME} tls=${POOL_TLS})"
 
