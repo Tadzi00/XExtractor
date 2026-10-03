@@ -12,7 +12,9 @@ profile_mining() {
 
 	# Kernel cmdline: reserve 1G hugepages for RandomX (dataset ~2.3GB -> 3x1G),
 	# fall back to 2M pages, and allow MSR writes for XMRig's MSR mod.
-	kernel_cmdline="unionfs_size=768M console=tty0 console=ttyS0,115200 \
+	# console=tty0 is LAST so the laptop screen is the primary console (boot
+	# messages show there instead of a black screen); serial stays available.
+	kernel_cmdline="unionfs_size=768M console=ttyS0,115200 console=tty0 \
 default_hugepagesz=1G hugepagesz=1G hugepages=3 hugepagesz=2M hugepages=1280 \
 msr.allow_writes=on"
 

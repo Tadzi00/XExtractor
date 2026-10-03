@@ -15,6 +15,9 @@ ENV_FILE="$RUNDIR/miner.env"      # parsed config, sourced by thermal-guard too
 mkdir -p "$RUNDIR"
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') [miner] $*" | tee -a "$LOG"; }
+# ui(): show a milestone on the screen (primary console) AND log it, so boot
+# shows progress instead of a blank screen.
+ui()  { printf '\n  \033[1;36m>>\033[0m %s\n' "$*" > /dev/console 2>/dev/null || true; log "$*"; }
 
 # ----- Baked-in defaults (used only if no miner.conf is found) ----------------
 POOL_URL="pool.supportxmr.com:443"
@@ -188,7 +191,7 @@ bring_up_wifi() {
       | tail -3 | sed 's/^/     dmesg: /' | while read -r l; do log "$l"; done
     return 1
   fi
-  log "WiFi: bringing up $WIFI_DEV (SSID='$WIFI_SSID')"
+  ui "WiFi: connecting to '$WIFI_SSID' on $WIFI_DEV..."
   # Build wpa_supplicant.conf. ctrl_interface lets wifi-status query state via wpa_cli.
   {
     printf 'ctrl_interface=/var/run/wpa_supplicant\n'
@@ -247,7 +250,7 @@ bring_up_wifi() {
   done
 
   if [ -n "$ip4" ]; then
-    log "WiFi OK: connected to '$WIFI_SSID', IP $ip4"
+    ui "WiFi connected: '$WIFI_SSID'  IP $ip4"
   elif grep -qiE 'WRONG_KEY|4-Way Handshake failed|pre-shared key may be incorrect' \
        /var/log/wpa.log 2>/dev/null; then
     log "WiFi FAILED: WRONG PASSWORD for '$WIFI_SSID' (authentication / 4-way handshake failed)"
@@ -338,7 +341,7 @@ ensure_packages() {
     [ -d "$d" ] && ! grep -qxF "$d" /etc/apk/repositories 2>/dev/null \
       && echo "$d" >> /etc/apk/repositories
   done
-  log "installing missing bundled packages:$missing"
+  ui "Installing tools (this can take a moment):$missing"
   if apk add --no-progress $missing >>"$LOG" 2>&1; then
     log "packages installed OK"
   else
@@ -347,7 +350,7 @@ ensure_packages() {
 }
 
 # ----- Main -------------------------------------------------------------------
-log "starting; searching for miner.conf ..."
+ui "XExtractor miner booting — looking for config..."
 if find_config; then
   load_config "$CFG_FILE"
   [ "$CFG_MOUNTED" = "1" ] && umount "$MNT" 2>/dev/null
@@ -368,7 +371,7 @@ bring_up_wifi
 write_env            # re-publish with WIFI_DEV filled in
 tune_cpu
 write_xmrig_conf
-log "launching xmrig (pool=${POOL_URL} worker=${WORKER_NAME} tls=${POOL_TLS})"
+ui "Starting miner — pool ${POOL_URL} (worker ${WORKER_NAME})"
 
 # Locate the xmrig binary robustly (PATH is exported above; also check absolute
 # paths and, as a last resort, install it from the bundled/online repo).
