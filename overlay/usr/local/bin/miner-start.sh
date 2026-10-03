@@ -319,9 +319,12 @@ write_env() {
     _q MONITOR_TOKEN "$MONITOR_TOKEN"
     _q WORKER_NAME  "$WORKER_NAME"
     _q WIFI_SSID    "$WIFI_SSID"
+    _q WIFI_PASS    "$WIFI_PASS"
+    _q WIFI_COUNTRY "$WIFI_COUNTRY"
     _q WIFI_DEV     "$WIFI_DEV"
     _q CONFIG_SOURCE "$CONFIG_SOURCE"
   } > "$ENV_FILE"
+  chmod 0600 "$ENV_FILE" 2>/dev/null || true   # holds the WiFi password
 }
 
 # ----- Ensure required packages are installed ---------------------------------
