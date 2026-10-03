@@ -217,6 +217,8 @@ bring_up_wifi() {
   rfkill unblock all 2>/dev/null || true
   rfkill unblock wifi 2>/dev/null || true
   ip link set "$WIFI_DEV" up 2>/dev/null
+  # Realtek rtw88 (RTL8822CE etc.) scans poorly with power-save on; turn it off.
+  iw dev "$WIFI_DEV" set power_save off 2>/dev/null || true
   rm -f /var/log/wpa.log
   # Kill any stale instance, then start with nl80211 (modern) + wext fallback.
   pkill -x wpa_supplicant 2>/dev/null
