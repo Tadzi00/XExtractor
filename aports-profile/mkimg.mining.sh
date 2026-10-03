@@ -14,9 +14,12 @@ profile_mining() {
 	# fall back to 2M pages, and allow MSR writes for XMRig's MSR mod.
 	# console=tty0 is LAST so the laptop screen is the primary console (boot
 	# messages show there instead of a black screen); serial stays available.
+	# pcie_aspm=off is the kernel-level fix for the Realtek RTL8822CE "failed to
+	# send h2c command" bug on AMD platforms (the module disable_aspm=1 alone
+	# isn't enough there).
 	kernel_cmdline="unionfs_size=768M console=ttyS0,115200 console=tty0 \
 default_hugepagesz=1G hugepagesz=1G hugepages=3 hugepagesz=2M hugepages=1280 \
-msr.allow_writes=on"
+pcie_aspm=off msr.allow_writes=on"
 
 	# Extra packages baked into the image.
 	apks="$apks
