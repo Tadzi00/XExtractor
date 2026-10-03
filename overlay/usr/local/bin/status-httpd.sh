@@ -1,6 +1,6 @@
 #!/bin/sh
-# status-httpd.sh - serve a tiny LAN status page that proxies XMRig's summary.
-# Uses busybox httpd + a CGI script so any browser on the LAN can see hashrate.
+# status-httpd.sh - serve a tiny LAN status page (busybox httpd) showing XMRig
+# stats + CPU temperature. CGI scripts add the API token / read temp server-side.
 set -u
 RUNDIR="/run/miner"
 ENV_FILE="$RUNDIR/miner.env"
@@ -11,11 +11,12 @@ HTTP_PORT=8088
 MONITOR_PORT=8080
 MONITOR_TOKEN="change-me"
 WORKER_NAME="rig01"
+MAX_TEMP_C=85
 [ -f "$ENV_FILE" ] && . "$ENV_FILE"
 
 mkdir -p "$CGI"
 
-# Static landing page: pulls JSON from the CGI proxy and renders it.
+# Static landing page: pulls JSON from the CGI endpoints and renders it.
 cat > "$WWW/index.html" <<'HTML'
 <!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -27,28 +28,49 @@ cat > "$WWW/index.html" <<'HTML'
  .card{background:#181b22;border:1px solid #262b36;border-radius:12px;padding:16px;margin:12px 0}
  .k{color:#8b93a7;font-size:13px}.v{font-size:22px;font-weight:600}
  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
- .ok{color:#5bd68a}.bad{color:#ff6b6b}
+ .span{grid-column:1/-1}
+ .ok{color:#5bd68a}.warn{color:#ffb454}.bad{color:#ff6b6b}
 </style></head><body><div class="wrap">
 <h1>⛏️ Miner Status</h1>
 <div id="status" class="card">connecting…</div>
 <div class="grid">
  <div class="card"><div class="k">Hashrate (10s)</div><div class="v" id="hr">–</div></div>
- <div class="card"><div class="k">Accepted shares</div><div class="v" id="sh">–</div></div>
+ <div class="card"><div class="k">CPU temp</div><div class="v" id="temp">–</div></div>
+ <div class="card"><div class="k">Accepted shares</div><div class="v" id="acc">–</div></div>
+ <div class="card"><div class="k">Rejected shares</div><div class="v" id="rej">–</div></div>
  <div class="card"><div class="k">Uptime</div><div class="v" id="up">–</div></div>
- <div class="card"><div class="k">Pool</div><div class="v" id="pool" style="font-size:15px">–</div></div>
+ <div class="card"><div class="k">Difficulty</div><div class="v" id="diff">–</div></div>
+ <div class="card span"><div class="k">Pool</div><div class="v" id="pool" style="font-size:15px">–</div></div>
 </div>
 <p class="k" id="ts"></p></div>
 <script>
 function fmtT(s){s=s|0;var h=(s/3600|0),m=((s%3600)/60|0);return h+"h "+m+"m"}
 async function tick(){
  try{
-  const r=await fetch("/cgi-bin/summary",{cache:"no-store"});
-  const d=await r.json();
+  const [rs,rt]=await Promise.all([
+    fetch("/cgi-bin/summary",{cache:"no-store"}),
+    fetch("/cgi-bin/temp",{cache:"no-store"})
+  ]);
+  const d=await rs.json();
+  const td=await rt.json().catch(()=>({}));
   const hr=(d.hashrate&&d.hashrate.total&&d.hashrate.total[0])||0;
   document.getElementById("hr").textContent=hr.toFixed(1)+" H/s";
-  document.getElementById("sh").textContent=(d.results&&d.results.shares_good)||0;
+  const good=(d.results&&d.results.shares_good)||0;
+  const tot=(d.results&&d.results.shares_total)||0;
+  const rej=Math.max(0,tot-good);
+  document.getElementById("acc").textContent=good;
+  const re=document.getElementById("rej");
+  re.textContent=rej;
+  re.className="v "+(rej>0?"warn":"ok");
   document.getElementById("up").textContent=fmtT(d.uptime||0);
+  const diff=(d.results&&d.results.diff_current)||0;
+  document.getElementById("diff").textContent=diff?diff.toLocaleString():"–";
   document.getElementById("pool").textContent=(d.connection&&d.connection.pool)||"–";
+  // CPU temp, coloured against the configured limit.
+  const t=td.cpu_temp_c||0, mx=td.max_temp_c||85;
+  const te=document.getElementById("temp");
+  te.textContent=t?(t+"°C"):"n/a";
+  te.className="v "+(t>=mx?"bad":(t>=mx-10?"warn":"ok"));
   const conn=d.connection&&d.connection.uptime>0;
   const s=document.getElementById("status");
   s.innerHTML=conn?'<span class="ok">● mining — pool connected</span>'
@@ -60,7 +82,7 @@ tick();setInterval(tick,5000);
 </script></body></html>
 HTML
 
-# CGI proxy: adds the auth token server-side so the page needs no secret.
+# CGI: XMRig summary (token added server-side so the page needs no secret).
 cat > "$CGI/summary" <<CGI
 #!/bin/sh
 echo "Content-Type: application/json"
@@ -69,5 +91,20 @@ curl -s -m 5 -H "Authorization: Bearer ${MONITOR_TOKEN}" \\
   "http://127.0.0.1:${MONITOR_PORT}/1/summary" || echo '{}'
 CGI
 chmod +x "$CGI/summary"
+
+# CGI: hottest CPU thermal zone + the configured limit (for colour thresholds).
+cat > "$CGI/temp" <<CGI
+#!/bin/sh
+echo "Content-Type: application/json"
+echo ""
+T=0
+for f in /sys/class/thermal/thermal_zone*/temp; do
+  [ -r "\$f" ] || continue
+  v="\$(cat "\$f" 2>/dev/null)"; case "\$v" in ''|*[!0-9-]*) continue;; esac
+  c="\$((v/1000))"; [ "\$c" -gt "\$T" ] && T="\$c"
+done
+printf '{"cpu_temp_c":%s,"max_temp_c":%s}' "\$T" "${MAX_TEMP_C}"
+CGI
+chmod +x "$CGI/temp"
 
 exec busybox httpd -f -p "${HTTP_PORT}" -h "$WWW"
