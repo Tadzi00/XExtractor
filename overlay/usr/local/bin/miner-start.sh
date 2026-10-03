@@ -354,7 +354,7 @@ ui "XExtractor miner booting — looking for config..."
 if find_config; then
   load_config "$CFG_FILE"
   [ "$CFG_MOUNTED" = "1" ] && umount "$MNT" 2>/dev/null
-  log "config loaded into RAM; USB stick may now be removed"
+  log "config loaded into RAM"
 else
   umount "$MNT" 2>/dev/null
   log "NO miner.conf found -- using baked-in defaults (EDIT YOUR WALLET!)"
@@ -387,6 +387,9 @@ if [ -z "$XMRIG_BIN" ]; then
   XMRIG_BIN="$(command -v xmrig 2>/dev/null || echo /usr/bin/xmrig)"
 fi
 log "using xmrig binary: $XMRIG_BIN"
+# Everything needed is now in RAM (tools installed, drivers + network up), so
+# the boot medium is no longer required for steady-state mining.
+ui "Mining is starting — you can UNPLUG the USB stick now."
 # MINER_FOREGROUND=1 sends XMRig output to stdout (for container/interactive use);
 # otherwise append to the log file (live-OS default).
 if [ "${MINER_FOREGROUND:-0}" = "1" ]; then
