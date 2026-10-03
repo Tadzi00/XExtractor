@@ -329,7 +329,6 @@ ensure_packages() {
   command -v xmrig          >/dev/null 2>&1 || add_missing xmrig
   command -v wpa_supplicant >/dev/null 2>&1 || { add_missing wpa_supplicant; add_missing wireless-regdb; }
   command -v iw             >/dev/null 2>&1 || add_missing iw
-  command -v rfkill         >/dev/null 2>&1 || add_missing rfkill
   command -v lsblk          >/dev/null 2>&1 || add_missing util-linux
   [ -n "$missing" ] || return 0
   # Make sure the on-media apks repo is a known repository (offline install).

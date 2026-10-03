@@ -32,7 +32,6 @@ msr.allow_writes=on"
 		wireless-regdb
 		linux-firmware
 		iw
-		rfkill
 		"
 
 	# Overlay generator (services + scripts).
