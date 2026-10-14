@@ -18,6 +18,7 @@ Configure WiFi in miner.conf on the USB stick:
 Leave WIFI_SSID blank to use Ethernet instead.
 
 Other handy commands:
+  hashrate                     hashrate, shares, pool, CPU temp (-w = live)
   check-drives                 find the config stick / list all partitions
   tail -f /var/log/miner.log   live miner + WiFi log
   grep -i wifi /var/log/miner.log   just the WiFi lines

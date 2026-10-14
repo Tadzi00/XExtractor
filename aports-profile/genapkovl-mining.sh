@@ -79,11 +79,12 @@ alias wifi-connect='/usr/local/bin/wifi-connect.sh'
 alias wifi-select='/usr/local/bin/wifi-select.sh'
 alias wifi-help='/usr/local/bin/wifi-help.sh'
 alias check-drives='/usr/local/bin/check-drives.sh'
+alias hashrate='/usr/local/bin/hashrate.sh'
 echo
 echo "==================  Monero RAM Miner  =================="
 echo " log      : tail -f /var/log/miner.log"
 echo " status   : rc-service miner status ; pgrep -a xmrig"
-echo " hashrate : grep speed /var/log/miner.log | tail -1"
+echo " hashrate : hashrate      (hashrate -w = live view)"
 echo " wifi     : wifi-help    (status / scan / select / connect)"
 echo " stick    : check-drives"
 echo "======================================================="
