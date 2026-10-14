@@ -1,10 +1,20 @@
 #!/bin/sh
-# wifi-connect.sh - (re)connect to the configured WiFi. Run as: wifi-connect
+# wifi-connect.sh - (re)connect WiFi.
+#   wifi-connect                  use the stick's network (or the temporary one)
+#   wifi-connect "SSID" [PASS]    join another network temporarily (RAM only,
+#                                 the stick's miner.conf is not changed)
+#   wifi-connect --usb            forget the temporary one, back to the stick's
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 . /usr/local/bin/wifi-lib.sh
-ENV=/run/miner/miner.env
 WIFI_SSID=""; WIFI_PASS=""; WIFI_COUNTRY="US"; WIFI_DEV=""
-[ -f "$ENV" ] && . "$ENV" 2>/dev/null
+case "${1:-}" in
+  -h|--help) sed -n '3,6p' "$0" | sed 's/^#  //'; exit 0 ;;
+  --usb)     rm -f "$WIFI_OVERRIDE"; echo "Temporary network forgotten; using the stick's miner.conf." ;;
+  "")        : ;;
+  *)         wifi_save_override "$1" "${2:-}"
+             echo "Temporary network '$1' (until reboot; miner.conf unchanged)." ;;
+esac
+wifi_load_config
 
 [ -n "$WIFI_SSID" ] || { echo "No WiFi configured (WIFI_SSID blank in miner.conf)."; exit 1; }
 
@@ -37,7 +47,8 @@ echo "Connecting $dev to '$WIFI_SSID'..."
 printf 'ctrl_interface=/var/run/wpa_supplicant\nupdate_config=1\ncountry=%s\n' "$WIFI_COUNTRY" > /run/wpa_supplicant.conf
 if [ -n "$WIFI_PASS" ]; then
   wpa_passphrase "$WIFI_SSID" "$WIFI_PASS" >> /run/wpa_supplicant.conf 2>/dev/null \
-    || { echo "wpa_passphrase rejected the password (must be 8-63 chars)."; exit 1; }
+    || { echo "wpa_passphrase rejected the password (must be 8-63 chars)."
+         [ -n "$WIFI_TEMP" ] && rm -f "$WIFI_OVERRIDE"; exit 1; }
 else
   printf 'network={\n  ssid="%s"\n  key_mgmt=NONE\n}\n' "$WIFI_SSID" >> /run/wpa_supplicant.conf
 fi

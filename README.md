@@ -102,7 +102,8 @@ The login banner lists commands:
 | `wifi-help` | all WiFi commands + config keys |
 | `wifi-status` | config source, connection state, and *why* WiFi failed |
 | `wifi-scan` | nearby WiFi networks (SSID / signal / freq) |
-| `wifi-connect` | retry/reconnect using the configured SSID/password |
+| `wifi-select` | pick a nearby network from a numbered list, type its password — joins it **temporarily** (RAM only, the stick isn't changed; reverts on reboot) |
+| `wifi-connect` | retry/reconnect using the configured SSID/password; `wifi-connect "SSID" "PASS"` joins another network temporarily, `wifi-connect --usb` goes back to the stick's |
 | `check-drives` | find the config stick / list all partitions |
 | `tail -f /var/log/miner.log` | live miner + WiFi log |
 

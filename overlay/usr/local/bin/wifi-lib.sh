@@ -85,3 +85,21 @@ wifi_country_hint() {
     echo "network is on channel $ch, which country=US forbids -> set WIFI_COUNTRY to your country (e.g. PL) in miner.conf"
   fi
 }
+
+# Temporary network picked with wifi-select / `wifi-connect SSID PASS`. Lives in
+# RAM only: it beats the stick's miner.conf until reboot or `wifi-connect --usb`.
+WIFI_OVERRIDE=/run/miner/wifi.override
+
+wifi_q() { printf "%s='%s'\n" "$1" "$(printf '%s' "$2" | sed "s/'/'\\\\''/g")"; }
+
+wifi_save_override() {   # SSID PASS
+  mkdir -p /run/miner
+  ( umask 077; { wifi_q WIFI_SSID "$1"; wifi_q WIFI_PASS "$2"; } > "$WIFI_OVERRIDE" )
+}
+
+# Load miner.env, then the temporary override on top. Sets WIFI_TEMP=1 if used.
+wifi_load_config() {
+  WIFI_TEMP=""
+  [ -f /run/miner/miner.env ] && . /run/miner/miner.env 2>/dev/null
+  if [ -f "$WIFI_OVERRIDE" ]; then . "$WIFI_OVERRIDE" 2>/dev/null; WIFI_TEMP=1; fi
+}

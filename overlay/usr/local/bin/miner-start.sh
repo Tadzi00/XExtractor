@@ -197,6 +197,12 @@ bring_up_wifi() {
       | tail -3 | sed 's/^/     dmesg: /' | while read -r l; do log "$l"; done
     return 1
   fi
+  # Miner restarts re-run this script: don't drop a link that already works.
+  if [ "$(wpa_cli -i "$WIFI_DEV" status 2>/dev/null | sed -n 's/^wpa_state=//p')" = "COMPLETED" ] \
+     && ip -4 addr show "$WIFI_DEV" 2>/dev/null | grep -q 'inet '; then
+    log "WiFi: already connected on $WIFI_DEV, keeping it"
+    return 0
+  fi
   ui "WiFi: connecting to '$WIFI_SSID' on $WIFI_DEV..."
   # Clear any rfkill soft/hard block (laptops often boot with WiFi blocked).
   rfkill unblock all 2>/dev/null || true
@@ -386,6 +392,12 @@ if find_config; then
 else
   umount "$MNT" 2>/dev/null
   log "NO miner.conf found -- using baked-in defaults (EDIT YOUR WALLET!)"
+fi
+
+# A network picked by hand (wifi-select) wins over the stick until reboot.
+if [ -f "$WIFI_OVERRIDE" ]; then
+  . "$WIFI_OVERRIDE" 2>/dev/null
+  log "WiFi: using temporary network '$WIFI_SSID' (wifi-select); 'wifi-connect --usb' reverts"
 fi
 
 if [ "$WALLET" = "YOUR_MONERO_ADDRESS_HERE" ]; then

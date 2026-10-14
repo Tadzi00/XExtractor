@@ -3,7 +3,7 @@
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 . /usr/local/bin/wifi-lib.sh
 WIFI_SSID=""
-[ -f /run/miner/miner.env ] && . /run/miner/miner.env 2>/dev/null
+wifi_load_config
 dev=""
 for d in /sys/class/net/*/wireless; do [ -e "$d" ] && dev="$(basename "$(dirname "$d")")" && break; done
 [ -n "$dev" ] || { echo "No wireless interface found."; exit 1; }

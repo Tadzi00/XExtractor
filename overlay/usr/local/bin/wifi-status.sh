@@ -6,7 +6,7 @@ export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 ENV_FILE=/run/miner/miner.env
 WIFI_SSID=""; WIFI_DEV=""; WIFI_COUNTRY="US"; CONFIG_SOURCE=""
-[ -f "$ENV_FILE" ] && . "$ENV_FILE" 2>/dev/null
+wifi_load_config
 
 echo "---- Config ----"
 echo "loaded from     : ${CONFIG_SOURCE:-unknown}"
@@ -29,7 +29,11 @@ if [ -z "${WIFI_SSID:-}" ]; then
   echo "not configured (WIFI_SSID blank) -- this rig uses ethernet"
   exit 0
 fi
-echo "configured SSID : $WIFI_SSID"
+if [ -n "$WIFI_TEMP" ]; then
+  echo "configured SSID : $WIFI_SSID  (TEMPORARY, picked by hand -- 'wifi-connect --usb' reverts)"
+else
+  echo "configured SSID : $WIFI_SSID"
+fi
 
 if [ -z "$dev" ]; then
   echo "interface       : NONE FOUND"

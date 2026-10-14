@@ -76,6 +76,7 @@ makefile root:root 0644 "$tmp"/root/.profile <<'PROFILE'
 alias wifi-status='/usr/local/bin/wifi-status.sh'
 alias wifi-scan='/usr/local/bin/wifi-scan.sh'
 alias wifi-connect='/usr/local/bin/wifi-connect.sh'
+alias wifi-select='/usr/local/bin/wifi-select.sh'
 alias wifi-help='/usr/local/bin/wifi-help.sh'
 alias check-drives='/usr/local/bin/check-drives.sh'
 echo
@@ -83,14 +84,14 @@ echo "==================  Monero RAM Miner  =================="
 echo " log      : tail -f /var/log/miner.log"
 echo " status   : rc-service miner status ; pgrep -a xmrig"
 echo " hashrate : grep speed /var/log/miner.log | tail -1"
-echo " wifi     : wifi-help    (status / scan / connect)"
+echo " wifi     : wifi-help    (status / scan / select / connect)"
 echo " stick    : check-drives"
 echo "======================================================="
 grep -E 'config loaded|baked-in|NO miner.conf|launching xmrig|WiFi' \
     /var/log/miner.log 2>/dev/null | tail -6
 echo
 # Show WiFi state only when WiFi is actually configured on this rig.
-if grep -qE "^WIFI_SSID='[^']" /run/miner/miner.env 2>/dev/null; then
+if grep -qE "^WIFI_SSID='[^']" /run/miner/miner.env 2>/dev/null || [ -f /run/miner/wifi.override ]; then
     /usr/local/bin/wifi-status.sh
     echo
 fi
