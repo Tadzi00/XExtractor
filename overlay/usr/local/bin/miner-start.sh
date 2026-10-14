@@ -13,6 +13,7 @@ RUNDIR="/run/miner"
 XMRIG_CONF="$RUNDIR/xmrig.json"
 ENV_FILE="$RUNDIR/miner.env"      # parsed config, sourced by thermal-guard too
 mkdir -p "$RUNDIR"
+. /usr/local/bin/wifi-lib.sh       # shared scan / SSID-matching helpers
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') [miner] $*" | tee -a "$LOG"; }
 # ui(): show a milestone on the screen (primary console) AND log it, so boot
@@ -145,10 +146,15 @@ load_config() {
   cfg="$1"
   # Only accept KEY=VALUE lines for a known allowlist of keys (no code execution).
   while IFS='=' read -r key val; do
-    key="$(printf '%s' "$key" | tr -d ' \t\r')"
+    key="$(printf '%s' "$key" | tr -d ' \t\r\357\273\277')"   # also drops a Notepad BOM
     # Strip an inline comment only when '#' is preceded by whitespace, so values
     # containing '#' (e.g. WiFi passwords, SSIDs) are kept intact.
     val="$(printf '%s' "$val" | sed 's/[[:space:]]#.*$//; s/^[[:space:]]*//; s/[[:space:]]*$//; s/\r$//')"
+    # Accept quoted values (WIFI_SSID="My Net") -- the quotes aren't part of the name.
+    case "$val" in
+      \"*\") val="${val#\"}"; val="${val%\"}" ;;
+      \'*\') val="${val#\'}"; val="${val%\'}" ;;
+    esac
     case "$key" in
       POOL_URL|WALLET|WORKER_NAME|POOL_TLS|MAX_TEMP_C|MONITOR_PORT|MONITOR_TOKEN|CPU_MAX_THREADS_HINT|WIFI_SSID|WIFI_PASS|WIFI_COUNTRY)
         [ -n "$val" ] && eval "$key=\$val" ;;
@@ -192,6 +198,30 @@ bring_up_wifi() {
     return 1
   fi
   ui "WiFi: connecting to '$WIFI_SSID' on $WIFI_DEV..."
+  # Clear any rfkill soft/hard block (laptops often boot with WiFi blocked).
+  rfkill unblock all 2>/dev/null || true
+  rfkill unblock wifi 2>/dev/null || true
+  pkill -x wpa_supplicant 2>/dev/null
+  ip link set "$WIFI_DEV" up 2>/dev/null
+  # Realtek rtw88 (RTL8822CE etc.) scans poorly with power-save on; turn it off.
+  iw dev "$WIFI_DEV" set power_save off 2>/dev/null || true
+  # Apply the regulatory country before scanning so all its channels are usable.
+  iw reg set "$WIFI_COUNTRY" 2>/dev/null || true
+  # Scan first and match the configured name against what is really on air. A
+  # name that differs only in case/spaces/quotes is the #1 cause of "network
+  # not found" -- use the router's exact spelling instead.
+  scan="$(wifi_scan_list "$WIFI_DEV")"
+  wifi_find_ssid "$WIFI_SSID" "$scan"; rc=$?
+  if [ "$rc" = 1 ]; then
+    log "WiFi: '$WIFI_SSID' not found exactly; using the router's spelling '$WF_SSID'"
+    WIFI_SSID="$WF_SSID"
+  elif [ "$rc" = 2 ]; then
+    log "WiFi: '$WIFI_SSID' not in scan; trying anyway (hidden network?). Visible:"
+    printf '%s\n' "$scan" | head -8 | while IFS="$(printf '\t')" read -r fr sig ss; do
+      [ -n "$ss" ] && log "     '$ss'  ${sig}dBm  ch$(wifi_chan "$fr")"
+    done
+  fi
+  h="$(wifi_country_hint "$WF_FREQ" "$WIFI_COUNTRY")"; [ -n "$h" ] && log "WiFi: $h"
   # Build wpa_supplicant.conf. ctrl_interface lets wifi-status query state via wpa_cli.
   {
     printf 'ctrl_interface=/var/run/wpa_supplicant\n'
@@ -216,15 +246,10 @@ bring_up_wifi() {
   else
     printf 'network={\n  ssid="%s"\n  key_mgmt=NONE\n}\n' "$WIFI_SSID" >> /run/wpa_supplicant.conf
   fi
-  # Clear any rfkill soft/hard block (laptops often boot with WiFi blocked).
-  rfkill unblock all 2>/dev/null || true
-  rfkill unblock wifi 2>/dev/null || true
-  ip link set "$WIFI_DEV" up 2>/dev/null
-  # Realtek rtw88 (RTL8822CE etc.) scans poorly with power-save on; turn it off.
-  iw dev "$WIFI_DEV" set power_save off 2>/dev/null || true
+  # scan_ssid=1: probe for the name directly (hidden networks, picky drivers).
+  sed -i 's/^\([[:space:]]*\)ssid=/\1scan_ssid=1\n\1ssid=/' /run/wpa_supplicant.conf
   rm -f /var/log/wpa.log
-  # Kill any stale instance, then start with nl80211 (modern) + wext fallback.
-  pkill -x wpa_supplicant 2>/dev/null
+  # Start with nl80211 (modern) + wext fallback.
   if wpa_supplicant -B -Dnl80211,wext -i "$WIFI_DEV" -c /run/wpa_supplicant.conf \
        -f /var/log/wpa.log >>"$LOG" 2>&1; then
     log "WiFi: wpa_supplicant started on $WIFI_DEV"
@@ -256,10 +281,10 @@ bring_up_wifi() {
     log "WiFi FAILED: WRONG PASSWORD for '$WIFI_SSID' (authentication / 4-way handshake failed)"
   elif [ "$state" = "COMPLETED" ]; then
     log "WiFi: associated to '$WIFI_SSID' but DHCP gave no IP (router issue?)"
-  elif wpa_cli -i "$WIFI_DEV" scan_results 2>/dev/null | grep -qF "$WIFI_SSID"; then
+  elif [ "$rc" != 2 ]; then
     log "WiFi: '$WIFI_SSID' is visible but didn't connect (state=${state:-unknown}); check password"
   else
-    log "WiFi FAILED: '$WIFI_SSID' not seen in scan (wrong name, 5GHz-only, or out of range)"
+    log "WiFi FAILED: '$WIFI_SSID' not seen in scan (wrong name, or out of range) -- run wifi-scan"
   fi
 }
 

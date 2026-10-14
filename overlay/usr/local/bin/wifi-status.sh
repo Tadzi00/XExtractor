@@ -2,9 +2,10 @@
 # wifi-status.sh - show current WiFi state and, if it's not working, why.
 # Run it any time after login: `wifi-status`
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+. /usr/local/bin/wifi-lib.sh
 
 ENV_FILE=/run/miner/miner.env
-WIFI_SSID=""; WIFI_DEV=""; CONFIG_SOURCE=""
+WIFI_SSID=""; WIFI_DEV=""; WIFI_COUNTRY="US"; CONFIG_SOURCE=""
 [ -f "$ENV_FILE" ] && . "$ENV_FILE" 2>/dev/null
 
 echo "---- Config ----"
@@ -44,26 +45,46 @@ echo "link state      : $(cat /sys/class/net/$dev/operstate 2>/dev/null)"
 
 # Classify association using wpa_cli state + the wpa_supplicant log.
 state=""
-command -v wpa_cli >/dev/null 2>&1 && \
-  state="$(wpa_cli -i "$dev" status 2>/dev/null | sed -n 's/^wpa_state=//p')"
+wpa_ok=""
+wpa_cli -i "$dev" ping 2>/dev/null | grep -q PONG && wpa_ok=1
+[ -n "$wpa_ok" ] && state="$(wpa_cli -i "$dev" status 2>/dev/null | sed -n 's/^wpa_state=//p')"
 echo "wpa_state       : ${state:-unknown}"
 
 if [ "$state" = "COMPLETED" ]; then
   ssid_now="$(wpa_cli -i "$dev" status 2>/dev/null | sed -n 's/^ssid=//p')"
-  echo "associated      : yes ($ssid_now)"
+  echo "associated      : yes ($(_wifi_decode "$ssid_now"))"
 elif grep -qiE 'WRONG_KEY|4-Way Handshake failed|pre-shared key may be incorrect' /var/log/wpa.log 2>/dev/null; then
   echo "associated      : NO  ==> WRONG PASSWORD (authentication failed)"
-elif command -v wpa_cli >/dev/null 2>&1 && ! wpa_cli -i "$dev" scan_results 2>/dev/null | grep -qF "$WIFI_SSID"; then
-  echo "associated      : NO  ==> network '$WIFI_SSID' not found (wrong name, 5GHz-only, or out of range)"
 else
-  echo "associated      : NO  (state=${state:-unknown})"
+  # Fresh scan (same one wifi-scan uses), then match the name the same way the
+  # boot script does -- exact, or differing only in case/spaces/quotes.
+  echo "scanning        : ..."
+  scan="$(wifi_scan_list "$dev")"
+  wifi_find_ssid "$WIFI_SSID" "$scan"; rc=$?
+  if [ "$rc" = 0 ]; then
+    echo "associated      : NO  (network is visible, ${WF_SIG}dBm ch$(wifi_chan "$WF_FREQ"); state=${state:-unknown})"
+    echo "  => run: wifi-connect   (if it keeps failing, the password is likely wrong)"
+  elif [ "$rc" = 1 ]; then
+    echo "associated      : NO  ==> name mismatch: miner.conf has '$WIFI_SSID',"
+    echo "                  the router broadcasts '$WF_SSID'. Run wifi-connect (it"
+    echo "                  now uses the router's spelling) or fix WIFI_SSID."
+  elif [ -z "$scan" ]; then
+    echo "associated      : NO  ==> scan returned nothing (radio busy/blocked?) -- try wifi-scan"
+  else
+    echo "associated      : NO  ==> network '$WIFI_SSID' not found. Visible networks:"
+    printf '%s\n' "$scan" | head -8 | while IFS="$(printf '\t')" read -r fr sig ss; do
+      echo "                  '$ss'  ${sig}dBm  ch$(wifi_chan "$fr")"
+    done
+  fi
+  h="$(wifi_country_hint "$WF_FREQ" "$WIFI_COUNTRY")"; [ -n "$h" ] && echo "  => $h"
 fi
 
 ip4="$(ip -4 addr show "$dev" 2>/dev/null | awk '/inet /{print $2}')"
 [ -n "$ip4" ] && echo "IP address      : $ip4" || echo "IP address      : none (DHCP not completed)"
 
 if pgrep -x wpa_supplicant >/dev/null 2>&1; then
-  echo "wpa_supplicant  : running"
+  [ -n "$wpa_ok" ] && echo "wpa_supplicant  : running" \
+    || echo "wpa_supplicant  : running but not answering wpa_cli -> run: wifi-connect"
 else
   echo "wpa_supplicant  : NOT running  <== nothing is trying to connect"
 fi
