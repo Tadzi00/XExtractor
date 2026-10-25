@@ -22,24 +22,41 @@ _wifi_decode() {
 # (a direct scan would fail with "Resource busy"), otherwise with iw.
 wifi_scan_list() {
   dev="$1"
-  raw=""
+  raw=""; WIFI_SCAN_ERR=""
   if pgrep -x wpa_supplicant >/dev/null 2>&1 && wpa_cli -i "$dev" ping 2>/dev/null | grep -q PONG; then
     wpa_cli -i "$dev" scan >/dev/null 2>&1
-    sleep 4
-    raw="$(wpa_cli -i "$dev" scan_results 2>/dev/null \
-      | awk -F'\t' 'NR>1 && NF>=5 && $5!="" {print $2 "\t" $3 "\t" $5}')"
+    # A full 2.4 + 5 GHz scan can take several seconds; poll for results.
+    n=0
+    while [ "$n" -lt 12 ]; do
+      sleep 1
+      raw="$(wpa_cli -i "$dev" scan_results 2>/dev/null \
+        | awk -F'\t' 'NR>1 && NF>=5 && $5!="" {print $2 "\t" $3 "\t" $5}')"
+      [ -n "$raw" ] && [ "$n" -ge 4 ] && break
+      n=$((n+1))
+    done
   fi
   if [ -z "$raw" ]; then
+    ip link set "$dev" up 2>/dev/null
     n=0
-    while [ "$n" -lt 3 ]; do
-      raw="$(iw dev "$dev" scan 2>/dev/null | awk '
+    while [ "$n" -lt 8 ]; do
+      out="$(iw dev "$dev" scan 2>&1)"; rc=$?
+      raw="$(printf '%s\n' "$out" | awk '
         /^BSS/      {fr=""; sig=""}
         /freq:/     {fr=int($2)}
         /signal:/   {sig=int($2)}
         /^\tSSID: / {s=$0; sub(/^\tSSID: /,"",s); if(s!="") print fr "\t" sig "\t" s}')"
       [ -n "$raw" ] && break
-      sleep 2; n=$((n+1))   # "Device or resource busy" right after link-up
+      # "Device or resource busy" / "Network is down" right after link-up or
+      # while another scan runs -- wait and retry.
+      [ "$rc" -ne 0 ] && WIFI_SCAN_ERR="$(printf '%s' "$out" | tail -1)"
+      sleep 2; n=$((n+1))
     done
+    # Last resort: whatever the driver still has cached from earlier scans.
+    [ -n "$raw" ] || raw="$(iw dev "$dev" scan dump 2>/dev/null | awk '
+        /^BSS/      {fr=""; sig=""}
+        /freq:/     {fr=int($2)}
+        /signal:/   {sig=int($2)}
+        /^\tSSID: / {s=$0; sub(/^\tSSID: /,"",s); if(s!="") print fr "\t" sig "\t" s}')"
   fi
   printf '%s\n' "$raw" | sort -t "$(printf '\t')" -k2,2nr | while IFS="$(printf '\t')" read -r fr sig ssid; do
     [ -n "$ssid" ] && printf '%s\t%s\t%s\n' "$fr" "$sig" "$(_wifi_decode "$ssid")"

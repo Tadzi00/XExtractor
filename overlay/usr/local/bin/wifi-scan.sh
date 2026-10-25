@@ -10,9 +10,16 @@ for d in /sys/class/net/*/wireless; do [ -e "$d" ] && dev="$(basename "$(dirname
 rfkill unblock all 2>/dev/null || true
 ip link set "$dev" up 2>/dev/null
 
-echo "Scanning on $dev (a few seconds)..."
-scan="$(wifi_scan_list "$dev")"
-[ -n "$scan" ] || { echo "(scan found nothing -- interface busy? try again)"; exit 1; }
+echo "Scanning on $dev (up to ~15 s)..."
+# Not in $(...): WIFI_SCAN_ERR must survive for the message below.
+wifi_scan_list "$dev" > /run/wifi-scan.$$
+scan="$(cat /run/wifi-scan.$$)"; rm -f /run/wifi-scan.$$
+if [ -z "$scan" ]; then
+  echo "Scan found no networks.${WIFI_SCAN_ERR:+ Last error: $WIFI_SCAN_ERR}"
+  echo "  -> wait a few seconds and run wifi-scan again; if it stays empty,"
+  echo "     run wifi-report and send the file."
+  exit 1
+fi
 nw="$(_wifi_norm "$WIFI_SSID")"
 echo "SIGNAL  CH   SSID"
 printf '%s\n' "$scan" | while IFS="$(printf '\t')" read -r fr sig ss; do
