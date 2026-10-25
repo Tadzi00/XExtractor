@@ -104,6 +104,7 @@ The login banner lists commands:
 | `wifi-scan` | nearby WiFi networks (SSID / signal / freq) |
 | `wifi-select` | pick a nearby network from a numbered list, type its password — joins it **temporarily** (RAM only, the stick isn't changed; reverts on reboot) |
 | `wifi-connect` | retry/reconnect using the configured SSID/password; `wifi-connect "SSID" "PASS"` joins another network temporarily, `wifi-connect --usb` goes back to the stick's |
+| `wifi-report` | saves a hardware + WiFi diagnostics file (`xextractor-report-*.txt`, password masked) to the USB stick, to read on another computer. Runs automatically at boot when WiFi fails |
 | `hashrate` | hashrate (10s / 60s / 15m), shares, pool, uptime, CPU temp; `hashrate -w` refreshes live every 5 s |
 | `check-drives` | find the config stick / list all partitions |
 | `tail -f /var/log/miner.log` | live miner + WiFi log |
@@ -148,7 +149,8 @@ aports-profile/
   genapkovl-mining.sh         apkovl overlay generator (services, login banner, baked cfg)
 overlay/                      files baked into the image
   usr/local/bin/              miner-start, thermal-guard, status-httpd,
-                              wifi-connect, wifi-scan, wifi-help, check-drives
+                              wifi-connect, wifi-scan, wifi-help, wifi-report,
+                              check-drives
   etc/init.d/                 OpenRC services: miner, thermal-guard, miner-status
   etc/modprobe.d/rtw88.conf   disable ASPM for Realtek rtw88 WiFi
   etc/network, etc/local.d    DHCP + NIC-name fallback

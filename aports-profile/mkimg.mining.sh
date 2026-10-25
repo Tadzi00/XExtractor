@@ -37,6 +37,8 @@ pcie_aspm=off msr.allow_writes=on"
 		wireless-regdb
 		linux-firmware
 		iw
+		pciutils
+		usbutils
 		"
 
 	# Overlay generator (services + scripts).

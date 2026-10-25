@@ -369,6 +369,8 @@ ensure_packages() {
   command -v wpa_supplicant >/dev/null 2>&1 || { add_missing wpa_supplicant; add_missing wireless-regdb; }
   command -v iw             >/dev/null 2>&1 || add_missing iw
   command -v lsblk          >/dev/null 2>&1 || add_missing util-linux
+  command -v lspci          >/dev/null 2>&1 || add_missing pciutils
+  command -v lsusb          >/dev/null 2>&1 || add_missing usbutils
   [ -n "$missing" ] || return 0
   # Make sure the on-media apks repo is a known repository (offline install).
   for d in /media/*/apks /run/media/*/apks /.modloop/apks /mnt/*/apks; do
@@ -409,6 +411,14 @@ write_env            # publish config/SSID/source now so wifi-status is accurate
 ensure_packages
 bring_up_wifi
 write_env            # re-publish with WIFI_DEV filled in
+# WiFi configured but no IP: save a hardware/WiFi report onto the stick (it's
+# still plugged in at this point) so it can be read on another computer.
+if [ -n "$WIFI_SSID" ] && ! { [ -n "$WIFI_DEV" ] && ip -4 addr show "$WIFI_DEV" 2>/dev/null | grep -q 'inet '; }; then
+  ui "WiFi not working — saving a diagnostics report to the USB stick..."
+  out="$(/usr/local/bin/wifi-report.sh --auto 2>&1)"
+  log "$out"
+  ui "$(printf '%s\n' "$out" | head -1)"
+fi
 tune_cpu
 write_xmrig_conf
 ui "Starting miner — pool ${POOL_URL} (worker ${WORKER_NAME})"

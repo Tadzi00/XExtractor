@@ -77,6 +77,7 @@ alias wifi-status='/usr/local/bin/wifi-status.sh'
 alias wifi-scan='/usr/local/bin/wifi-scan.sh'
 alias wifi-connect='/usr/local/bin/wifi-connect.sh'
 alias wifi-select='/usr/local/bin/wifi-select.sh'
+alias wifi-report='/usr/local/bin/wifi-report.sh'
 alias wifi-help='/usr/local/bin/wifi-help.sh'
 alias check-drives='/usr/local/bin/check-drives.sh'
 alias hashrate='/usr/local/bin/hashrate.sh'
@@ -86,6 +87,7 @@ echo " log      : tail -f /var/log/miner.log"
 echo " status   : rc-service miner status ; pgrep -a xmrig"
 echo " hashrate : hashrate      (hashrate -w = live view)"
 echo " wifi     : wifi-help    (status / scan / select / connect)"
+echo " no wifi? : wifi-report  (saves a diagnostics file to the USB stick)"
 echo " stick    : check-drives"
 echo "======================================================="
 grep -E 'config loaded|baked-in|NO miner.conf|launching xmrig|WiFi' \

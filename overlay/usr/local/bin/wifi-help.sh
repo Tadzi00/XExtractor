@@ -9,6 +9,9 @@ cat <<'HELP'
   wifi-connect   (re)connect using the configured SSID/password
   wifi-connect "SSID" "PASS"   same as wifi-select, without the list
   wifi-connect --usb           forget the temporary network, use the stick's
+  wifi-report    save a hardware + WiFi diagnostics file to the USB stick
+                 (xextractor-report-*.txt) to read on another computer;
+                 done automatically at boot when WiFi fails
   wifi-help      this help
 
 Configure WiFi in miner.conf on the USB stick:
