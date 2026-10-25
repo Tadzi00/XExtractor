@@ -371,6 +371,7 @@ ensure_packages() {
   command -v lsblk          >/dev/null 2>&1 || add_missing util-linux
   command -v lspci          >/dev/null 2>&1 || add_missing pciutils
   command -v lsusb          >/dev/null 2>&1 || add_missing usbutils
+  command -v dmsetup        >/dev/null 2>&1 || add_missing device-mapper
   [ -n "$missing" ] || return 0
   # Make sure the on-media apks repo is a known repository (offline install).
   for d in /media/*/apks /run/media/*/apks /.modloop/apks /mnt/*/apks; do

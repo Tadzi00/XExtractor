@@ -164,6 +164,7 @@ cands="$( { printf '%s\n' "$cfg_label"; blkid 2>/dev/null | while IFS= read -r l
   d="${line%%:*}"
   case "$d" in *loop*|*/ram*) continue ;; esac
   case "$line" in *TYPE=\"vfat\"*|*TYPE=\"exfat\"*|*TYPE=\"ntfs\"*) ;; *) continue ;; esac
+  case "$line" in *LABEL=\"VTOYEFI\"*) continue ;; esac   # Ventoy's hidden boot partition
   is_usb "$d" && echo "$d"
 done; } | awk 'NF && !seen[$0]++')"   # MINERCFG first, no duplicates
 
@@ -171,10 +172,34 @@ errs=""
 note() { errs="$errs
   $1"; }
 
+# try_mount DEV -> mount DEV read-write on $MNT; on failure $e holds the error.
+try_mount() {
+  umount "$MNT" 2>/dev/null
+  e="$(mount -o rw "$1" "$MNT" 2>&1)" && return 0
+  for t in exfat vfat ntfs3; do
+    mount -t "$t" -o rw "$1" "$MNT" 2>/dev/null && { e=""; return 0; }
+  done
+  return 1
+}
+
+# dm_map DEV -> prints /dev/mapper/NAME: a linear device-mapper view of the
+# whole partition. Works even while Ventoy holds DEV.
+dm_map() {
+  command -v dmsetup >/dev/null 2>&1 || return 1
+  modprobe dm-mod 2>/dev/null
+  n="wifireport-$(basename "$1")"
+  dmsetup remove "$n" 2>/dev/null
+  sz="$(blockdev --getsz "$1" 2>/dev/null)"
+  [ -n "$sz" ] || return 1
+  dmsetup create "$n" --table "0 $sz linear $1 0" 2>/dev/null || return 1
+  mdev -s 2>/dev/null
+  echo "/dev/mapper/$n"
+}
+
 # write_to DEV WANT_CONF -> 0 if the report was copied onto DEV. If DEV is already
 # mounted (e.g. read-only by the live system) it is remounted rw just for the copy.
 write_to() {
-  dev="$1"; want="$2"; dir=""; remounted=""; ours=""
+  dev="$1"; want="$2"; dir=""; remounted=""; ours=""; mapped=""
   mp="$(awk -v d="$dev" '$1==d {print $2; exit}' /proc/mounts)"
   if [ -n "$mp" ]; then
     dir="$mp"
@@ -184,14 +209,16 @@ write_to() {
       else note "$dev: mounted read-only at $mp, remount failed: $e"; return 1; fi
     fi
   else
-    umount "$MNT" 2>/dev/null
-    e="$(mount -o rw "$dev" "$MNT" 2>&1)" || {
-      e2=""
-      for t in vfat exfat ntfs3; do
-        e2="$(mount -t "$t" -o rw "$dev" "$MNT" 2>&1)" && { e=""; break; }
-      done
-      [ -z "$e" ] || { note "$dev: can't mount read-write: $e ${e2:+/ $e2}"; return 1; }
-    }
+    if ! try_mount "$dev"; then
+      # Ventoy keeps its data partition busy (it maps the booted ISO from it),
+      # so mount it through a second device-mapper view, as Ventoy documents.
+      if mapped="$(dm_map "$dev")" && try_mount "$mapped"; then :
+      else
+        note "$dev: can't mount read-write: $e$(command -v dmsetup >/dev/null 2>&1 || echo ' (dmsetup missing)')"
+        [ -n "$mapped" ] && dmsetup remove "$(basename "$mapped")" 2>/dev/null
+        return 1
+      fi
+    fi
     dir="$MNT"; ours=1
   fi
   rc=1
@@ -204,6 +231,7 @@ write_to() {
   fi
   [ -n "$remounted" ] && mount -o remount,ro "$mp" 2>/dev/null
   [ -n "$ours" ] && umount "$MNT" 2>/dev/null
+  [ -n "$mapped" ] && dmsetup remove "$(basename "$mapped")" 2>/dev/null
   return $rc
 }
 

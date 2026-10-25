@@ -39,6 +39,7 @@ pcie_aspm=off msr.allow_writes=on"
 		iw
 		pciutils
 		usbutils
+		device-mapper
 		"
 
 	# Overlay generator (services + scripts).
