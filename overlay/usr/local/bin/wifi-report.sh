@@ -146,7 +146,9 @@ sed -i 's/\(psk=\).*/\1********/' "$TMP"
 cp "$TMP" "/root/$NAME" 2>/dev/null
 
 # ----- Save to the USB stick -------------------------------------------------
-# Prefer the partition that holds miner.conf, then any FAT/exFAT/NTFS one.
+# Only USB disks (or a partition labelled MINERCFG) -- never the computer's own
+# internal drives. Prefer the partition holding miner.conf, then any FAT/exFAT/
+# NTFS partition on a USB disk.
 for m in usb_storage uas sd_mod vfat exfat ntfs3 nls_cp437 nls_iso8859-1 nls_utf8; do
   modprobe "$m" 2>/dev/null
 done
@@ -154,43 +156,76 @@ mdev -s 2>/dev/null
 
 MNT=/run/wifireport
 mkdir -p "$MNT"
-cands="$(blkid -o device -t LABEL=MINERCFG 2>/dev/null)
-$(blkid 2>/dev/null | while IFS= read -r line; do
+
+is_usb() { case "$(readlink -f "/sys/class/block/$(basename "$1")" 2>/dev/null)" in */usb*) return 0 ;; esac; return 1; }
+
+cfg_label="$(blkid -o device -t LABEL=MINERCFG 2>/dev/null)"
+cands="$( { printf '%s\n' "$cfg_label"; blkid 2>/dev/null | while IFS= read -r line; do
   d="${line%%:*}"
   case "$d" in *loop*|*/ram*) continue ;; esac
-  case "$line" in *TYPE=\"vfat\"*|*TYPE=\"exfat\"*|*TYPE=\"ntfs\"*) echo "$d" ;; esac
-done)"
+  case "$line" in *TYPE=\"vfat\"*|*TYPE=\"exfat\"*|*TYPE=\"ntfs\"*) ;; *) continue ;; esac
+  is_usb "$d" && echo "$d"
+done; } | awk 'NF && !seen[$0]++')"   # MINERCFG first, no duplicates
 
-mount_rw() {
-  umount "$MNT" 2>/dev/null
-  mount -o rw "$1" "$MNT" 2>/dev/null && return 0
-  for t in vfat exfat ntfs3; do
-    mount -t "$t" -o rw "$1" "$MNT" 2>/dev/null && return 0
-  done
-  return 1
+errs=""
+note() { errs="$errs
+  $1"; }
+
+# write_to DEV WANT_CONF -> 0 if the report was copied onto DEV. If DEV is already
+# mounted (e.g. read-only by the live system) it is remounted rw just for the copy.
+write_to() {
+  dev="$1"; want="$2"; dir=""; remounted=""; ours=""
+  mp="$(awk -v d="$dev" '$1==d {print $2; exit}' /proc/mounts)"
+  if [ -n "$mp" ]; then
+    dir="$mp"
+    [ "$want" = conf ] && [ ! -f "$dir/miner.conf" ] && return 1
+    if ! awk -v d="$dev" '$1==d {print $4; exit}' /proc/mounts | grep -q '^rw'; then
+      if e="$(mount -o remount,rw "$mp" 2>&1)"; then remounted=1
+      else note "$dev: mounted read-only at $mp, remount failed: $e"; return 1; fi
+    fi
+  else
+    umount "$MNT" 2>/dev/null
+    e="$(mount -o rw "$dev" "$MNT" 2>&1)" || {
+      e2=""
+      for t in vfat exfat ntfs3; do
+        e2="$(mount -t "$t" -o rw "$dev" "$MNT" 2>&1)" && { e=""; break; }
+      done
+      [ -z "$e" ] || { note "$dev: can't mount read-write: $e ${e2:+/ $e2}"; return 1; }
+    }
+    dir="$MNT"; ours=1
+  fi
+  rc=1
+  if [ "$want" = conf ] && [ ! -f "$dir/miner.conf" ]; then
+    :
+  elif e="$(cp "$TMP" "$dir/$NAME" 2>&1)"; then
+    sync; rc=0
+  else
+    note "$dev: copy failed: $e"
+  fi
+  [ -n "$remounted" ] && mount -o remount,ro "$mp" 2>/dev/null
+  [ -n "$ours" ] && umount "$MNT" 2>/dev/null
+  return $rc
 }
 
-# Pass 1: partitions that already hold miner.conf; pass 2: any writable one.
 saved=""
 for pass in conf any; do
   for d in $cands; do
-    mount_rw "$d" || continue
-    if [ "$pass" = any ] || [ -f "$MNT/miner.conf" ]; then
-      if cp "$TMP" "$MNT/$NAME" 2>/dev/null; then
-        sync; saved="$d"
-      fi
-    fi
-    umount "$MNT" 2>/dev/null
-    [ -n "$saved" ] && break 2
+    if write_to "$d" "$pass"; then saved="$d"; break 2; fi
   done
 done
 
 if [ -n "$saved" ]; then
-  echo "WiFi report saved to the USB stick ($saved): $NAME"
+  lbl="$(blkid -o value -s LABEL "$saved" 2>/dev/null)"
+  echo "WiFi report saved to the USB stick ($saved${lbl:+, label $lbl}): $NAME"
   say "  Also kept in RAM at /root/$NAME"
   say "  Plug the stick into another computer and open that file."
   exit 0
 fi
-echo "Could NOT save the WiFi report to a USB stick (none plugged in, or read-only)."
+echo "Could NOT save the WiFi report to a USB stick."
+if [ -z "$cands" ]; then
+  echo "  No USB stick partition found (FAT32/exFAT/NTFS). Is the stick plugged in?"
+else
+  echo "  Reasons:$errs"
+fi
 echo "  It's kept at /root/$NAME -- plug the stick back in and run: wifi-report"
 exit 1
