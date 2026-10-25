@@ -54,9 +54,8 @@ else
 fi
 
 sed -i 's/^\([[:space:]]*\)ssid=/\1scan_ssid=1\n\1ssid=/' /run/wpa_supplicant.conf
-rm -f /var/log/wpa.log
-wpa_supplicant -B -Dnl80211,wext -i "$dev" -c /run/wpa_supplicant.conf -f /var/log/wpa.log \
-  || { echo "wpa_supplicant failed to start (see /var/log/wpa.log)."; exit 1; }
+wifi_start_wpa "$dev" /run/wpa_supplicant.conf \
+  || { echo "wpa_supplicant failed to start:"; tail -5 /var/log/wpa.log 2>/dev/null; exit 1; }
 udhcpc -i "$dev" -b -t 10 -T 3 >/dev/null 2>&1 &
 
 printf "Waiting for IP"

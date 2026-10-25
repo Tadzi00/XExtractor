@@ -103,3 +103,20 @@ wifi_load_config() {
   [ -f /run/miner/miner.env ] && . /run/miner/miner.env 2>/dev/null
   if [ -f "$WIFI_OVERRIDE" ]; then . "$WIFI_OVERRIDE" 2>/dev/null; WIFI_TEMP=1; fi
 }
+
+# wifi_start_wpa DEV CONF -> start wpa_supplicant on DEV, logging to
+# /var/log/wpa.log. Alpine's build has no -f (log file) option -- passing it just
+# prints usage and exits 0 -- so run it in the foreground, in the background
+# with its output redirected. Returns 0 once wpa_cli can talk to it.
+wifi_start_wpa() {
+  pkill -x wpa_supplicant 2>/dev/null; sleep 1
+  rm -f /var/log/wpa.log "/var/run/wpa_supplicant/$1"
+  wpa_supplicant -t -Dnl80211,wext -i "$1" -c "$2" >> /var/log/wpa.log 2>&1 &
+  n=0
+  while [ "$n" -lt 10 ]; do
+    wpa_cli -i "$1" ping 2>/dev/null | grep -q PONG && return 0
+    pgrep -x wpa_supplicant >/dev/null 2>&1 || return 1   # exited already
+    sleep 1; n=$((n+1))
+  done
+  pgrep -x wpa_supplicant >/dev/null 2>&1
+}

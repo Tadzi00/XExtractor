@@ -254,10 +254,8 @@ bring_up_wifi() {
   fi
   # scan_ssid=1: probe for the name directly (hidden networks, picky drivers).
   sed -i 's/^\([[:space:]]*\)ssid=/\1scan_ssid=1\n\1ssid=/' /run/wpa_supplicant.conf
-  rm -f /var/log/wpa.log
   # Start with nl80211 (modern) + wext fallback.
-  if wpa_supplicant -B -Dnl80211,wext -i "$WIFI_DEV" -c /run/wpa_supplicant.conf \
-       -f /var/log/wpa.log >>"$LOG" 2>&1; then
+  if wifi_start_wpa "$WIFI_DEV" /run/wpa_supplicant.conf; then
     log "WiFi: wpa_supplicant started on $WIFI_DEV"
   else
     log "WiFi FAILED: wpa_supplicant did not start (see /var/log/wpa.log):"
@@ -366,7 +364,9 @@ ensure_packages() {
   missing=""
   add_missing() { case " $missing " in *" $1 "*) ;; *) missing="$missing $1" ;; esac; }
   command -v xmrig          >/dev/null 2>&1 || add_missing xmrig
-  command -v wpa_supplicant >/dev/null 2>&1 || { add_missing wpa_supplicant; add_missing wireless-regdb; }
+  command -v wpa_supplicant >/dev/null 2>&1 || add_missing wpa_supplicant
+  # /lib/firmware is read-only here; only install the regulatory db if absent.
+  [ -e /lib/firmware/regulatory.db ] || add_missing wireless-regdb
   command -v iw             >/dev/null 2>&1 || add_missing iw
   command -v lsblk          >/dev/null 2>&1 || add_missing util-linux
   command -v lspci          >/dev/null 2>&1 || add_missing pciutils
@@ -379,11 +379,15 @@ ensure_packages() {
       && echo "$d" >> /etc/apk/repositories
   done
   ui "Installing tools (this can take a moment):$missing"
-  if apk add --no-progress $missing >>"$LOG" 2>&1; then
-    log "packages installed OK"
-  else
-    log "apk add failed -- could not install:$missing (no local repo/network)"
-  fi
+  apk add --no-progress $missing >>"$LOG" 2>&1
+  # apk can return an error for one file (e.g. in read-only /lib/firmware) even
+  # though everything usable got installed -- report what is really missing.
+  still=""
+  for c in xmrig wpa_supplicant iw lsblk lspci lsusb dmsetup; do
+    command -v "$c" >/dev/null 2>&1 || still="$still $c"
+  done
+  if [ -z "$still" ]; then log "packages installed OK"
+  else log "apk add: still missing:$still (no local repo/network?)"; fi
 }
 
 # ----- Main -------------------------------------------------------------------

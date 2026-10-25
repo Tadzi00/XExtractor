@@ -67,8 +67,8 @@ say "Collecting diagnostics (takes ~10 s)..."
   echo; usb_sysfs
 
   sec "Network interfaces"
-  run "ip -br link"
-  run "ip -br addr"
+  run "ip link"
+  run "ip addr"
   run "ip route"
   for n in /sys/class/net/*; do
     [ -e "$n" ] || continue
