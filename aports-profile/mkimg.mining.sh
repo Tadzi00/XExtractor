@@ -25,6 +25,7 @@ pcie_aspm=off msr.allow_writes=on"
 	apks="$apks
 		xmrig
 		curl
+		busybox-extras
 		ca-certificates
 		lm-sensors
 		util-linux

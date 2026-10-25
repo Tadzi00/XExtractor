@@ -15,7 +15,13 @@ ENV_FILE="$RUNDIR/miner.env"      # parsed config, sourced by thermal-guard too
 mkdir -p "$RUNDIR"
 . /usr/local/bin/wifi-lib.sh       # shared scan / SSID-matching helpers
 
-log() { echo "$(date '+%Y-%m-%d %H:%M:%S') [miner] $*" | tee -a "$LOG"; }
+# Write each line once: under OpenRC stdout already goes to $LOG (output_log),
+# so only append to the file ourselves when stdout is something else.
+_log_line() {
+  if [ "$(readlink /proc/$$/fd/1 2>/dev/null)" = "$LOG" ]; then echo "$1"
+  else echo "$1" | tee -a "$LOG"; fi
+}
+log() { _log_line "$(date '+%Y-%m-%d %H:%M:%S') [miner] $*"; }
 # ui(): show a milestone on the screen (primary console) AND log it, so boot
 # shows progress instead of a blank screen.
 ui()  { printf '\n  \033[1;36m>>\033[0m %s\n' "$*" > /dev/console 2>/dev/null || true; log "$*"; }
@@ -364,6 +370,8 @@ ensure_packages() {
   missing=""
   add_missing() { case " $missing " in *" $1 "*) ;; *) missing="$missing $1" ;; esac; }
   command -v xmrig          >/dev/null 2>&1 || add_missing xmrig
+  command -v curl           >/dev/null 2>&1 || add_missing curl            # hashrate, thermal guard, status page
+  command -v httpd          >/dev/null 2>&1 || add_missing busybox-extras  # status page web server
   command -v wpa_supplicant >/dev/null 2>&1 || add_missing wpa_supplicant
   # /lib/firmware is read-only here; only install the regulatory db if absent.
   [ -e /lib/firmware/regulatory.db ] || add_missing wireless-regdb
@@ -383,7 +391,7 @@ ensure_packages() {
   # apk can return an error for one file (e.g. in read-only /lib/firmware) even
   # though everything usable got installed -- report what is really missing.
   still=""
-  for c in xmrig wpa_supplicant iw lsblk lspci lsusb dmsetup; do
+  for c in xmrig curl httpd wpa_supplicant iw lsblk lspci lsusb dmsetup; do
     command -v "$c" >/dev/null 2>&1 || still="$still $c"
   done
   if [ -z "$still" ]; then log "packages installed OK"

@@ -107,4 +107,14 @@ printf '{"cpu_temp_c":%s,"max_temp_c":%s}' "\$T" "${MAX_TEMP_C}"
 CGI
 chmod +x "$CGI/temp"
 
+# Alpine ships httpd in busybox-extras (miner-start.sh installs it); wait for it
+# rather than crash-looping while the miner is still installing tools.
+i=0
+while ! command -v httpd >/dev/null 2>&1 && ! busybox httpd --help >/dev/null 2>&1; do
+  [ "$i" -eq 0 ] && echo "status page: waiting for httpd (busybox-extras) to be installed..."
+  sleep 5; i=$((i+1))
+done
+if command -v httpd >/dev/null 2>&1; then
+  exec httpd -f -p "${HTTP_PORT}" -h "$WWW"
+fi
 exec busybox httpd -f -p "${HTTP_PORT}" -h "$WWW"

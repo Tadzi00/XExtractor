@@ -15,7 +15,13 @@ MONITOR_TOKEN="change-me"
 HYSTERESIS=8          # resume once temp drops MAX-HYSTERESIS
 POLL_SECONDS=5
 
-log() { echo "$(date '+%Y-%m-%d %H:%M:%S') [thermal] $*" | tee -a "$LOG"; }
+# Write each line once: under OpenRC stdout already goes to $LOG (output_log),
+# so only append to the file ourselves when stdout is something else.
+_log_line() {
+  if [ "$(readlink /proc/$$/fd/1 2>/dev/null)" = "$LOG" ]; then echo "$1"
+  else echo "$1" | tee -a "$LOG"; fi
+}
+log() { _log_line "$(date '+%Y-%m-%d %H:%M:%S') [thermal] $*"; }
 
 # Wait for miner-start.sh to publish the parsed config.
 i=0
@@ -39,7 +45,7 @@ hottest_c() {
 
 rpc() {
   # rpc <method>
-  curl -s -m 5 \
+  curl -sf -m 5 \
     -H "Authorization: Bearer ${MONITOR_TOKEN}" \
     -H "Content-Type: application/json" \
     -d "{\"method\":\"$1\",\"id\":1}" \
@@ -49,11 +55,17 @@ rpc() {
 log "watchdog up: pause>${MAX_TEMP_C}C resume<=${RESUME_AT}C poll=${POLL_SECONDS}s"
 
 paused=0
+warned=""
 while :; do
+  if ! command -v curl >/dev/null 2>&1; then
+    [ -n "$warned" ] || { log "WARNING: curl missing -- cannot pause the miner yet (waiting for install)"; warned=1; }
+    sleep "$POLL_SECONDS"; continue
+  fi
   t="$(hottest_c)"
   if [ "$t" -gt 0 ]; then
     if [ "$paused" -eq 0 ] && [ "$t" -ge "$MAX_TEMP_C" ]; then
-      if rpc pause; then paused=1; log "PAUSED at ${t}C (limit ${MAX_TEMP_C}C)"; fi
+      if rpc pause; then paused=1; log "PAUSED at ${t}C (limit ${MAX_TEMP_C}C)"
+      else log "at ${t}C but the pause request FAILED (miner API down or wrong MONITOR_TOKEN?)"; fi
     elif [ "$paused" -eq 1 ] && [ "$t" -le "$RESUME_AT" ]; then
       if rpc resume; then paused=0; log "RESUMED at ${t}C (<= ${RESUME_AT}C)"; fi
     fi

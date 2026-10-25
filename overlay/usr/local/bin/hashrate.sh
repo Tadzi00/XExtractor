@@ -33,6 +33,7 @@ cpu_temp() {
 }
 
 show() {
+  command -v curl >/dev/null 2>&1 || { echo "curl is not installed (needed to ask the miner) -> apk add curl"; return 1; }
   J="$(curl -s -m 3 -H "Authorization: Bearer ${MONITOR_TOKEN}" \
         "http://127.0.0.1:${MONITOR_PORT}/1/summary" 2>/dev/null | tr -d '\n')"
   if [ -z "$J" ] || ! printf '%s' "$J" | grep -q '"hashrate"'; then
